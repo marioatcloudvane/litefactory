@@ -11,14 +11,9 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
+	"github.com/cloudvane/litefactory/internal/factorylib"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 )
-
-type advisorCaptureFunc func(context.Context, string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error)
-
-func (f advisorCaptureFunc) Capture(ctx context.Context, role string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error) {
-	return f(ctx, role)
-}
 
 func TestAdvisorCaptureLifetimeAndFailure(t *testing.T) {
 	for _, tc := range []struct {
@@ -49,40 +44,15 @@ func TestAdvisorCaptureLifetimeAndFailure(t *testing.T) {
 				}
 				return string(data)
 			}
-			source, err := instructionpackage.New(t.Context(), runner.paths)
-			if err != nil {
-				t.Fatal(err)
-			}
-			initial, _, err := source.Capture(t.Context(), tc.role)
-			if err != nil {
-				t.Fatal(err)
-			}
-			ownerDir := runner.paths.InternalInstructionsDir()
-			if err := os.MkdirAll(filepath.Join(ownerDir, "agents"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			for _, file := range initial.Snapshot().Files {
-				if err := os.WriteFile(filepath.Join(ownerDir, filepath.FromSlash(file.Path)), file.Content, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			ownerFile := filepath.Join(ownerDir, "agents", tc.role+".md")
-			writeRole := func(text string) {
-				t.Helper()
-				if err := os.WriteFile(ownerFile, []byte(text), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			writeRole("owner role one %s")
+			roleOne := factorylibtest.With(t, map[string]string{factorylib.Role(tc.role).Path(): "owner role one %s"})
+			roleTwo := factorylibtest.With(t, map[string]string{factorylib.Role(tc.role).Path(): "owner role two %s"})
+			current := roleOne
 			captures := 0
-			runner.instructions = advisorCaptureFunc(func(ctx context.Context, role string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error) {
+			runner.instructions = factorylibtest.SourceFunc(func(context.Context) (*factorylib.Library, error) {
 				captures++
-				if role != tc.role {
-					t.Fatalf("captured role %q", role)
-				}
-				capture, diags, err := source.Capture(ctx, role)
-				writeRole("owner role two %s")
-				return capture, diags, err
+				lib := current
+				current = roleTwo
+				return lib, nil
 			})
 			if err := tc.call(t.Context(), runner); err != nil {
 				t.Fatal(err)
@@ -100,8 +70,8 @@ func TestAdvisorCaptureLifetimeAndFailure(t *testing.T) {
 				t.Fatalf("captures = %d, want 2", captures)
 			}
 			sentinel := errors.New("capture unavailable")
-			runner.instructions = advisorCaptureFunc(func(context.Context, string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error) {
-				return nil, nil, sentinel
+			runner.instructions = factorylibtest.SourceFunc(func(context.Context) (*factorylib.Library, error) {
+				return nil, sentinel
 			})
 			// A missing executable makes any attempted launch distinguishable from the source error.
 			runner.binary.Path = filepath.Join(t.TempDir(), "must-not-launch")

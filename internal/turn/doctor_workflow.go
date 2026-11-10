@@ -42,7 +42,6 @@ func DoctorWorkflowPolicy() WorkflowPolicy {
 		Mode:                      agent.ModeDoctor,
 		Control:                   graphexec.ControlPolicy{Mode: agent.ModeDoctor, Responses: []string{"ask", "done"}, Defaults: []string{"ask", "done"}, Ask: "ask"},
 		Decode:                    agentresult.DecodeDoctorNode,
-		Guidance:                  doctorNodeInstructions,
 		Contract:                  validateResearchComment,
 		Render:                    renderSpikeComment,
 		NextStep:                  doctorNextStep,
@@ -57,8 +56,6 @@ func DoctorWorkflowPolicy() WorkflowPolicy {
 func DoctorSpecs() (graphexec.Registry, error) {
 	return WorkflowSpecs(DoctorWorkflowPolicy())
 }
-
-const doctorNodeInstructions = "\nFactory invocation: Doctor graph node. Deliver the result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id. Terminal text is never read as a result. Read the doctor-result skill before you submit.\n"
 
 // admitDoctorExecution starts, continues or resumes the Doctor on this task.
 // The owner's authority was checked before the turn; this adds the one Doctor

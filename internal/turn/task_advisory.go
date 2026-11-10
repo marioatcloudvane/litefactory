@@ -13,8 +13,8 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
@@ -38,11 +38,7 @@ type TaskAdvisoryGuidance struct {
 
 // CaptureTaskAdvisoryGuidance freezes the complete advisory role/skill closure.
 func CaptureTaskAdvisoryGuidance(ctx context.Context, paths config.Paths, analysis, repositoryPath string, settings ...TaskAdvisorySettings) (json.RawMessage, error) {
-	p, err := instructionpackage.New(ctx, paths)
-	if err != nil {
-		return nil, err
-	}
-	c, _, err := p.Capture(ctx, "task-advisory")
+	c, err := factorylib.CaptureRole(ctx, factorylib.NewInstalled(paths), factorylib.TaskAdvisory)
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +99,11 @@ func (r *TaskAdvisoryRunner) Run(ctx context.Context, in taskdiscussion.RunReque
 	if _, bounded := ctx.Deadline(); !bounded {
 		return answer, errors.New("advisory execution requires the shared worker deadline")
 	}
-	captured, err := instructionpackage.Restore(guidance.Advisory)
+	captured, err := factorylib.Restore(guidance.Advisory)
 	if err != nil {
 		return answer, err
 	}
-	if captured.Role() != "task-advisory" {
+	if captured.Role() != factorylib.TaskAdvisory {
 		return answer, errors.New("task advisory role mismatch")
 	}
 	service, err := bindTaskAdvisoryResults(ctx, r.DB, in.ExecutionID)

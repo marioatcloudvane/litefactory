@@ -770,6 +770,7 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			d.reporter = reporter
 			d.defaultAgent = agent.Kind("claude")
 			d.classifiers = map[agent.Kind]agent.Classifier{d.defaultAgent: missingMappingClassifier{}}
+			d.modeRole = testModeRole
 			instructionBody := "Investigate this request"
 			if refusalKind == report.ReplyMissingTicketPublisher {
 				instructionBody = "/implement the approved plan"
@@ -822,7 +823,7 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 				reporter, err = turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
 				linearWorkflowCheck(t, err)
 				if bodyTrigger {
-					d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger}
+					d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger, modeRole: testModeRole}
 					task.tickAt = task.tickAt.Add(time.Hour)
 					d.quotas.tick(task.tickAt)
 					factory.SetRequestContext(d.bindQuotaRequest)
@@ -848,7 +849,7 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 				}
 			}
 			// Fresh daemon state exercises cleanup and source admission after restart.
-			d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger, defaultAgent: agent.Kind("claude"), classifiers: map[agent.Kind]agent.Classifier{agent.Kind("claude"): missingMappingClassifier{}}}
+			d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger, defaultAgent: agent.Kind("claude"), modeRole: testModeRole, classifiers: map[agent.Kind]agent.Classifier{agent.Kind("claude"): missingMappingClassifier{}}}
 			filter, err = turn.NewFilter(db, turn.Identities{OwnerUserID: ownerSlot, BotUserID: botSlot, TicketOrigin: version.Origin}, logger)
 			linearWorkflowCheck(t, err)
 			d.filter = filter

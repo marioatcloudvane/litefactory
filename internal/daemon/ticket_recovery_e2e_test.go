@@ -581,6 +581,7 @@ func newRecoveryDaemon(t *testing.T, w *webhookFixture, origin ticket.Origin, in
 		t.Fatal(err)
 	}
 	opts := daemon.Options{
+		ModeRole:     baseTeamModeRole,
 		DefaultAgent: agent.Kind(store.AgentClaude), ToolProfiles: config.DefaultToolProfiles().Permissions,
 		Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
 		DB: w.db, Forge: clients.Code, Tickets: clients.Tickets, Filter: filter, Turn: w.turns, Reporter: reporter,

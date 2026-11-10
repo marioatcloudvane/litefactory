@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"io"
 	"log/slog"
 	"net"
@@ -67,7 +68,7 @@ func remoteSetupFixture(t *testing.T) Setup {
 			return "", false
 		}
 	}}
-	return Setup{DB: db, Config: &cfg, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), ConnectorControl: control, ConnectionSecrets: resolver}
+	return Setup{Library: factorylibtest.Library(t), DB: db, Config: &cfg, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), ConnectorControl: control, ConnectionSecrets: resolver}
 }
 
 func TestRemoteConnectorPreparationFailsClosed(t *testing.T) {

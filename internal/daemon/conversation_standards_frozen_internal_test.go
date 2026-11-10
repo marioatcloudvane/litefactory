@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/standards"
@@ -72,7 +73,7 @@ func frozenStandardsFixture(t *testing.T) (*ConversationStandards, *owneraction.
 	}
 	book := &standards.Service{Store: db, OwnerID: 7}
 	runner := &frozenAuthorRunner{}
-	a := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: runner}, OwnerID: "17", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+	a := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: runner}, OwnerID: "17", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 	service := owneraction.New(db, frozenStandardsDomain{a}, func() time.Time { return at })
 	service.SetDiscord("17", []string{"3"})
 	service.SetDelivery(frozenApprovalDelivery{})

@@ -40,7 +40,7 @@ func TestDirtyConfirmationRecoveryLifecycle(t *testing.T) {
 			}
 			recoveredOnce = true
 			assertRetained(t, before, captureRetained(t, f, req.WorktreePath))
-			if !strings.Contains(req.Prompt, "The base was not merged") {
+			if !strings.Contains(req.Prompt, "## Base synchronization deferred") {
 				t.Errorf("recovery prompt lacks deferral disclosure: %s", req.Prompt)
 			}
 			return succeeded(req, f.paths.Home()), nil

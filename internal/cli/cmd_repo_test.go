@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -32,6 +33,7 @@ func newRepoHome(t *testing.T) config.Paths {
 	if _, err := config.WriteDefault(paths); err != nil {
 		t.Fatalf("write default config: %v", err)
 	}
+	factorylibtest.Install(t, paths)
 	db, err := store.Open(t.Context(), paths.DBPath())
 	if err != nil {
 		t.Fatalf("open database: %v", err)

@@ -33,7 +33,7 @@ Tests read team content from `teams/source` (through `teamsourcetest`).
 
 ## Base and inheritance
 
-`teams/source/base-team` is the shared, stack-neutral base: the six workflow folders with their graphs, roles and result skills. It holds no `stack-profile.json`, no stack guidance and no stack skill; each team adds its own. It has a `base.json` that declares its variables and no `release.json`, so it is never built, listed or installed; `team install` refuses it with "base-team is a base, not a team".
+`teams/source/base-team` is the shared, stack-neutral base: the six workflow folders (bug, implement, plan, research, spike, validate) with their graphs, roles and result skills, and `mode/mode-classifier.md`, the role that picks an issue's workflow mode; a team may replace it through `inherit.json` like any base file. The factory's own agents (judge, chat, advisors, analysts, connector guidance and the Doctor) are not team content: they live in `teams/source/factory` and are installed with `litefactory factory install`. It holds no `stack-profile.json`, no stack guidance and no stack skill; each team adds its own. It has a `base.json` that declares its variables and no `release.json`, so it is never built, listed or installed; `team install` refuses it with "base-team is a base, not a team".
 
 Base variables (declared in `base.json`, set by every team's `inherit.json`):
 

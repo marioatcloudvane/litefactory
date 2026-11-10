@@ -17,6 +17,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -79,11 +80,12 @@ func newFixture(t *testing.T, script string, adjust ...func(*config.Claude)) *fi
 	}
 
 	runner, err := New(Options{
-		Paths:   config.NewPaths(f.home),
-		Claude:  claude,
-		Model:   config.DefaultClaudeModel,
-		Environ: fixtureEnviron(f.binDir, f.home, root),
-		Logger:  discardLogger(),
+		Instructions: factorylibtest.Library(t),
+		Paths:        config.NewPaths(f.home),
+		Claude:       claude,
+		Model:        config.DefaultClaudeModel,
+		Environ:      fixtureEnviron(f.binDir, f.home, root),
+		Logger:       discardLogger(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

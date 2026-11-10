@@ -13,6 +13,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -131,7 +132,7 @@ func TestOwnerInboxChatSavedAnswerJourney(t *testing.T) {
 	service := messaging.New(db, "discord", "7", []string{"3"}, send, messaging.FactoryStatus{DB: db})
 	service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 	service.EnableOwnerInbox(reader)
-	if err := service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(t.TempDir(), "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
+	if err := service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(t.TempDir(), "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.ActivateNaturalScan(ctx, "3", "100"); err != nil {

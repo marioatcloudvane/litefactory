@@ -112,60 +112,13 @@ func TestGuideReusesToolGuidance(t *testing.T) {
 	}
 }
 
-func TestGuideTopics(t *testing.T) {
+func TestGuideTopicsRefuseUncallableAndUnknown(t *testing.T) {
 	t.Parallel()
-	bug := []string{guideTool, "bug_file_propose", "action_confirm", "action_inspect"}
-	text, err := composeGuide(guidanceFiles, bug, nil, "workflows")
-	if err != nil || !strings.Contains(text, "Workflow: file a bug") || strings.Contains(text, "not available here") == false {
-		t.Fatalf("bug workflow: %v\n%s", err, text)
-	}
-	// Bug filing is separate from feature requests, and each says so truthfully.
-	if !strings.Contains(text, "Filing a feature request is not available here") || strings.Contains(text, "Workflow: file a feature request") {
-		t.Fatalf("feature request must be unavailable for a bug-only grant:\n%s", text)
-	}
-	text, err = composeGuide(guidanceFiles, []string{guideTool}, nil, "workflows")
-	if err != nil || strings.Contains(text, "Workflow: file a bug") || !strings.Contains(text, "Filing a bug is not available here") {
-		t.Fatalf("no bug tool: %v\n%s", err, text)
-	}
-	if strings.Contains(text, "file_propose") || strings.Contains(text, "brainstorm_") {
-		t.Fatalf("unavailable text names tools:\n%s", text)
-	}
 	if _, err := composeGuide(guidanceFiles, []string{guideTool}, nil, "action_propose"); !errors.Is(err, errGuideTopic) {
 		t.Fatalf("a tool the grant cannot call is not a topic: %v", err)
 	}
 	if _, err := composeGuide(guidanceFiles, []string{guideTool}, nil, "nonsense"); !errors.Is(err, errGuideTopic) {
 		t.Fatalf("unknown topic: %v", err)
-	}
-	scopes, _ := composeGuide(guidanceFiles, []string{guideTool}, []string{"repository:actions", "task:discussion"}, "scopes")
-	if !strings.Contains(scopes, "repository:actions, task:discussion") || !strings.Contains(scopes, "reconnect") {
-		t.Fatalf("missing scopes must be named: %s", scopes)
-	}
-	none, _ := composeGuide(guidanceFiles, []string{guideTool}, nil, "scopes")
-	if strings.Contains(none, "approved without") {
-		t.Fatalf("no scope is missing: %s", none)
-	}
-}
-
-// Confirmation semantics: every change workflow tells the agent to wait for a
-// separate yes, and the guide itself never claims to file or approve.
-func TestGuideKeepsConfirmationSeparate(t *testing.T) {
-	t.Parallel()
-	text, err := composeGuide(guidanceFiles, allToolNames(t), nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, workflow := range []string{"file a feature request", "file a bug", "start a workflow"} {
-		_, rest, ok := strings.Cut(text, "## Workflow: "+workflow)
-		if !ok {
-			t.Fatalf("missing workflow %q", workflow)
-		}
-		section, _, _ := strings.Cut(rest, "\n## ")
-		if !strings.Contains(section, "separate") {
-			t.Errorf("workflow %q does not keep the yes separate:\n%s", workflow, section)
-		}
-	}
-	if !strings.Contains(text, "This guide tool files nothing") {
-		t.Fatal("the guide must say it files nothing")
 	}
 }
 
@@ -249,11 +202,11 @@ func TestInstructionsAreShort(t *testing.T) {
 
 func TestSkillIsBuiltFromTheSharedGuidance(t *testing.T) {
 	t.Parallel()
-	skill, err := ComposeSkill()
+	skill, err := ComposeSkill(guidanceFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(skill, "---\nname: litefactory\n") {
+	if !strings.HasPrefix(skill, "---\n") {
 		t.Fatalf("skill front matter: %q", skill[:60])
 	}
 	overview, _ := readOverview(guidanceFiles)
@@ -269,9 +222,6 @@ func TestSkillIsBuiltFromTheSharedGuidance(t *testing.T) {
 		if len(g.Missing) == 0 && !has {
 			t.Errorf("skill lacks a section: %.40s", g.Body)
 		}
-	}
-	if strings.Contains(skill, "approved without") {
-		t.Fatal("a skill has no grant, so it names no missing scopes")
 	}
 }
 
@@ -327,16 +277,11 @@ func TestGuideClientPath(t *testing.T) {
 			t.Fatalf("%s: the guide must be listed first and read-only: %v", tc.name, first)
 		}
 		text, out := guide(token, map[string]any{})
-		if !strings.Contains(text, "# Litefactory guide") {
+		if strings.TrimSpace(text) == "" {
 			t.Fatalf("%s: guide call: %v", tc.name, out)
 		}
-		if namesTool(text, "bug_file_propose") || namesTool(text, "action_confirm") || !strings.Contains(text, "Filing a bug is not available here") {
+		if namesTool(text, "bug_file_propose") || namesTool(text, "action_confirm") {
 			t.Fatalf("%s: the guide must be cut to this grant:\n%s", tc.name, text)
-		}
-		_, scopeList, _ := strings.Cut(text, "approved without these consent scopes: ")
-		listedScopes, _, _ := strings.Cut(scopeList, ".")
-		if strings.Contains(listedScopes, BrainstormScope) == tc.brainstorm {
-			t.Fatalf("%s: scope note does not match the grant:\n%s", tc.name, text)
 		}
 		if !tc.brainstorm && namesTool(text, "brainstorm_open") {
 			t.Fatalf("%s: must name the missing scope and not the tool:\n%s", tc.name, text)
@@ -362,48 +307,28 @@ func TestGuideClientPath(t *testing.T) {
 	}
 }
 
-// Ten realistic owner requests: the connection that can do the job is told the
-// tools to start with, in order; the guide steps name them in that order; and a
-// connection missing one of them is not told it can do the job.
-func TestOwnerRequestsMapToToolChains(t *testing.T) {
+// Every guide job's chain is named in its steps in order, offered to a
+// connection that can call all of it, and withheld from one missing a tool.
+func TestGuideJobsMapToToolChains(t *testing.T) {
 	t.Parallel()
 	sections, err := readGuideSections(guidanceFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
-	byJob := map[string]guideSection{}
+	jobs := 0
 	for _, g := range sections {
-		if g.Job != "" {
-			byJob[g.Job] = g
-		}
-	}
-	for _, tc := range []struct{ request, job string }{
-		{"What is waiting for me?", "See what is running or waiting for the owner"},
-		{"Where does task 12 stand?", "Check where a task stands"},
-		{"Let us think through a new export feature.", "Work out an idea in a brainstorm"},
-		{"File this as a feature request.", "File a feature request"},
-		{"The export button crashes, file a bug.", "File a bug"},
-		{"What did we spend this month?", "Check usage and cost"},
-		{"Run the log analysis for yesterday.", "Start an installed workflow"},
-		{"Get me a second opinion on the plan for task 12.", "Ask why a task was done this way (for an independent judgement use judge_task instead)"},
-		{"What changed in the code of task 12?", "Read or review a task's code"},
-		{"Which standards apply to task 12?", "Look up the published standards"},
-		{"Publish what we decided about task 12.", "Publish a conclusion from a discussion"},
-		{"I lost the reply, did my proposal go through?", "Cancel or recover a proposal"},
-	} {
-		g, ok := byJob[tc.job]
-		if !ok {
-			t.Errorf("%q: no guide job %q", tc.request, tc.job)
+		if g.Job == "" {
 			continue
 		}
+		jobs++
 		pos := -1
 		for _, tool := range g.Chain {
 			if !slices.Contains(g.Needs, tool) {
-				t.Errorf("%q: chain tool %s is not in the section's needs", tc.request, tool)
+				t.Errorf("%q: chain tool %s is not in the section's needs", g.Job, tool)
 			}
 			at := strings.Index(g.Body, tool)
 			if at < 0 || at < pos {
-				t.Errorf("%q: the steps must name %s after the earlier tools of the chain", tc.request, tool)
+				t.Errorf("%q: the steps must name %s after the earlier tools of the chain", g.Job, tool)
 			}
 			pos = at
 		}
@@ -411,37 +336,17 @@ func TestOwnerRequestsMapToToolChains(t *testing.T) {
 		grant := append([]string{guideTool}, g.Needs...)
 		ins, err := composeInstructions(guidanceFiles, grant, nil)
 		if err != nil || !strings.Contains(ins, line) {
-			t.Errorf("%q: instructions lack %q: %v", tc.request, line, err)
+			t.Errorf("%q: instructions lack %q: %v", g.Job, line, err)
 		}
 		for _, drop := range g.Needs {
 			short := slices.DeleteFunc(slices.Clone(grant), func(n string) bool { return n == drop })
 			ins, err := composeInstructions(guidanceFiles, short, nil)
 			if err != nil || strings.Contains(ins, line) {
-				t.Errorf("%q: job offered without %s: %v", tc.request, drop, err)
+				t.Errorf("%q: job offered without %s: %v", g.Job, drop, err)
 			}
 		}
 	}
-	// A connection with only the overview is not told it can file a bug.
-	ins, err := composeInstructions(guidanceFiles, []string{guideTool, "factory_overview"}, nil)
-	if err != nil || strings.Contains(ins, "File a bug") || !strings.Contains(ins, "See what is running or waiting for the owner: factory_overview") {
-		t.Fatalf("overview-only job map: %v\n%s", err, ins)
-	}
-}
-
-// The paid calls start without a yes and the agent is told to state the cost.
-func TestPaidCallsAreFlagged(t *testing.T) {
-	t.Parallel()
-	overview, _ := readOverview(guidanceFiles)
-	if !strings.Contains(overview, "paid") || !strings.Contains(overview, "costs money") {
-		t.Fatal("the instructions must warn about paid calls")
-	}
-	text, err := composeGuide(guidanceFiles, allToolNames(t), nil, "")
-	if err != nil || !strings.Contains(text, "## Paid calls") || !strings.Contains(text, "may cost money") {
-		t.Fatalf("the guide must flag paid calls: %v", err)
-	}
-	for _, tool := range []string{"ask_task_agent", "judge_task", "brainstorm_ask", "brainstorm_draft"} {
-		if !strings.Contains(text, tool) {
-			t.Errorf("%s missing from the full guide", tool)
-		}
+	if jobs == 0 {
+		t.Fatal("no guide section declares a job")
 	}
 }

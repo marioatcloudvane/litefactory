@@ -102,7 +102,7 @@ func TestRecoveryLifecycleBothRealCLIRunners(t *testing.T) {
 			runners := turn.RunnerSet{kind: runner}
 			executor := daemon.NewExecutor(turn.Options{AutoResumeOnSessionLimit: true, DB: f.db, Git: binary, Runners: runners, Paths: f.paths, InstanceID: "lifecycle", CloneGate: make(lifecycleCloneGate, 1), Author: git.Author{Name: "Recovery Test", Email: "recovery@example.invalid"}, Logger: f.logger})
 			buildDaemon := func() *daemon.Daemon {
-				d, err := daemon.New(daemon.Options{AutoResumeOnSessionLimit: true, DefaultAgent: kind, Agents: runners, Classifiers: map[agent.Kind]agent.Classifier{kind: fakeModeClassifier{}}, ToolProfiles: config.DefaultToolProfiles().Permissions, DB: f.db, Forge: f.client, Filter: f.filter, Turn: executor, Reporter: f.reporter, InstanceID: "lifecycle", Interval: testInterval, Logger: f.logger, Now: f.clock.Now})
+				d, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole, AutoResumeOnSessionLimit: true, DefaultAgent: kind, Agents: runners, Classifiers: map[agent.Kind]agent.Classifier{kind: fakeModeClassifier{}}, ToolProfiles: config.DefaultToolProfiles().Permissions, DB: f.db, Forge: f.client, Filter: f.filter, Turn: executor, Reporter: f.reporter, InstanceID: "lifecycle", Interval: testInterval, Logger: f.logger, Now: f.clock.Now})
 				if err != nil {
 					t.Fatal(err)
 				}

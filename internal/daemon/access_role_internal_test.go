@@ -37,7 +37,7 @@ func TestRepositoryAccessRoleReadsInstalledTeamFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	read := repositoryAccessRole(paths, db)
-	if text, err := read(t.Context(), repo); err != nil || text != "" {
+	if text, err := read(t.Context(), repo); err == nil || text != "" || !strings.Contains(err.Error(), "link a team") {
 		t.Fatalf("unlinked repository: %q %v", text, err)
 	}
 
@@ -71,7 +71,7 @@ func TestRepositoryAccessRoleReadsInstalledTeamFile(t *testing.T) {
 	if _, err := db.ReplaceRepositoryTeamBinding(t.Context(), store.RepositoryTeamBinding{RepoID: repo.ID, Source: "local", Slug: "custom", Version: "1.0.0", Kind: "local"}); err != nil {
 		t.Fatal(err)
 	}
-	if text, err := read(t.Context(), repo); err != nil || text != "" {
+	if text, err := read(t.Context(), repo); err == nil || text != "" || !strings.Contains(err.Error(), teamsource.AccessClassifierPath) {
 		t.Fatalf("team without access role: %q %v", text, err)
 	}
 	write(teamsource.AccessClassifierPath, "fixture team access role\n")

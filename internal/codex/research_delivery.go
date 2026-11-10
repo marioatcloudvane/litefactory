@@ -34,7 +34,7 @@ func skillPathGuidance(bundle string, skills []string) string {
 		lines = append(lines, "- "+filepath.Base(filepath.Dir(path))+": "+path)
 	}
 	slices.Sort(lines)
-	return "\n\n# Skill files\n\nThe skills selected for this run are these files. When a named skill applies, read its file here. Never search the worktree or repository for SKILL.md copies (for example copies under a teams directory); they are not this run's skills. In anything written for the owner, keep referring to a skill by its name only, never by its path.\n\n" + strings.Join(lines, "\n") + "\n"
+	return "\n\n# Skill files\n\n" + strings.Join(lines, "\n") + "\n"
 }
 
 func mainInstructionOverride(bundle string, skills []string) (string, error) {

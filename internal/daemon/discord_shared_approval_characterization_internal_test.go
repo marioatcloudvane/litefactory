@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/connector"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/messagingstorage"
@@ -46,7 +47,7 @@ func TestDiscordSharedApprovalWithRemoteEnabledOrDisabled(t *testing.T) {
 				t.Fatal(err)
 			}
 			author := &plainJourneyAuthor{}
-			operations := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
+			operations := &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: author}, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
 			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/applications/@me" {
 					fmt.Fprint(w, `{"flags":262144}`)
@@ -58,13 +59,13 @@ func TestDiscordSharedApprovalWithRemoteEnabledOrDisabled(t *testing.T) {
 			adapter := discord.New(discord.Options{Token: secrets.NewToken("fixture"), APIURL: api.URL, Client: api.Client()})
 			d := &Daemon{db: db, filter: independentActionFilter{}, log: setup.Logger}
 			if remote {
-				server, e := connector.New(ctx, connector.Options{Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }})
+				server, e := connector.New(ctx, connector.Options{Guidance: factorylibtest.Connector(), Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }})
 				if e != nil {
 					t.Fatal(e)
 				}
 				d.remoteConnector = &remoteConnectorRuntime{server: server}
 			}
-			d.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Now: func() time.Time { return at }, Standards: operations}, redact.New(redact.Options{Environ: []string{}}))
+			d.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Now: func() time.Time { return at }, Standards: operations}, redact.New(redact.Options{Environ: []string{}}))
 			chat := messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, nil, factory.NewHealth(db))
 			chat.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 			chat.EnableStandards(operations)

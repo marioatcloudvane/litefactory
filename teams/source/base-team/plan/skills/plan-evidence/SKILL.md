@@ -1,6 +1,7 @@
 ---
 name: plan-evidence
 description: Shared Plan candidate, evidence, ownership and result contract.
+requires: [run-rules, result-protocol]
 resources: [node-result.md, projection.md]
 ---
 # Contract

@@ -291,7 +291,7 @@ func composeSkill(files fs.FS) (string, error) {
 }
 
 // ComposeSkill returns the client-side skill file built from the embedded guidance.
-func ComposeSkill() (string, error) { return composeSkill(guidanceFiles) }
+func ComposeSkill(guidance fs.FS) (string, error) { return composeSkill(guidance) }
 
 // parseGuideArguments accepts no arguments, an empty object, or one topic.
 func parseGuideArguments(raw json.RawMessage) (string, error) {

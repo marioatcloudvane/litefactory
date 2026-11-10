@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -14,7 +15,7 @@ import (
 func TestAuthorSeesWhatBlocksItsDraftAndANewCategoryBecomesTheDraftsCategory(t *testing.T) {
 	t.Parallel()
 	book, _, db := publicationServices(t)
-	a := &standards.Authoring{Store: db, Book: book}
+	a := &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book}
 	v, e := a.Start(t.Context(), standards.AuthoringStart{Mode: "create", Intent: "No stubs"})
 	if e != nil {
 		t.Fatal(e)

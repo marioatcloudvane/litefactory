@@ -59,8 +59,8 @@ func TestBuildPromptStructure(t *testing.T) {
 	if got := strings.Count(prompt, "</note>"); got != 2 {
 		t.Errorf("got %d </note> elements, want 2", got)
 	}
-	if got := strings.Count(prompt, noteFraming); got != 2 {
-		t.Errorf("the third-party framing line appears %d times, want once per note", got)
+	if got := strings.Count(prompt, "<note>\nSource: "); got != 2 {
+		t.Errorf("the note source line appears %d times, want once per note", got)
 	}
 	if !strings.Contains(prompt, "@alice") {
 		t.Error("the issue author is not attributed")
@@ -70,38 +70,16 @@ func TestBuildPromptStructure(t *testing.T) {
 	}
 }
 
-// D-3: aiteam's dispatcher asks for a feature name before it routes anything.
-// If the slug is not stated, the run stops on a question that — on an untagged
-// run — nobody will read.
-//
-// This test and TestBuildPromptForbidsQuestions were one test until A1. They
-// asserted two facts that used to travel together and no longer do: the slug is
-// stated on every prompt, and the gag is on the untagged ones only. Keeping
-// them joined would have meant a slug regression and a permission regression
-// failing under the same name (F-11, T-A1.16).
+// D-3: the slug is stated on every cold prompt, whatever the question
+// permission, so a run never stops to look it up.
 func TestBuildPromptStatesTheFeatureSlug(t *testing.T) {
 	for _, mayAsk := range []bool{false, true} {
 		in := testPromptInput()
 		in.Mode = "research"
 		in.MayAsk = mayAsk
-		prompt := buildPrompt(t, in)
-
-		if !strings.Contains(prompt, "feature name or ticket id") {
-			t.Errorf("MayAsk=%t: the prompt does not pre-answer aiteam's feature-name question (D-3)", mayAsk)
+		if got := headerFacts(buildPrompt(t, in))["Feature slug"]; got != "123-add-a-widget" {
+			t.Errorf("MayAsk=%t: Feature slug = %q", mayAsk, got)
 		}
-		// AC-A1.3: deleting the paragraph on the tagged path is a failing
-		// outcome. Stating the slug *is* the mechanism; a run that may ask is
-		// still a run that should not have to.
-		if !strings.Contains(prompt, "`123-add-a-widget`") {
-			t.Errorf("MayAsk=%t: the slug is not stated as the answer to that question", mayAsk)
-		}
-	}
-}
-
-// The gag belongs to the untagged path alone now (AC-A1.2).
-func TestBuildPromptForbidsQuestions(t *testing.T) {
-	if prompt := buildPrompt(t, testPromptInput()); !strings.Contains(prompt, "may not ask clarifying questions") {
-		t.Error("an untagged prompt does not forbid interactive questions")
 	}
 }
 
@@ -338,10 +316,7 @@ func TestInferModeAsksTheRunToChoose(t *testing.T) {
 
 	for _, want := range []string{
 		"- Mode: infer\n",
-		"named no command",
-		"supplied project instructions",
-		"choose the one this request calls for",
-		"under the feature slug named above",
+		"- Request: a comment that named no command\n",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt is missing %q:\n%s", want, prompt)
@@ -402,11 +377,8 @@ func TestResumedPromptIsTheDelta(t *testing.T) {
 		"- Task:",
 		"- Branch:",
 		"- Working directory:",
-		"feature name or ticket id",
-		"may not ask clarifying questions",
 		"Title: Add a widget",
 		"The widget should be blue.",
-		"The two notes below",
 	} {
 		if strings.Contains(prompt, unwanted) {
 			t.Errorf("the resumed prompt repeats %q, which the conversation has already seen:\n%s",
@@ -419,8 +391,8 @@ func TestResumedPromptIsTheDelta(t *testing.T) {
 	if got := strings.Count(prompt, "<note>"); got != 1 {
 		t.Errorf("got %d <note> elements, want 1 (the triggering comment only)", got)
 	}
-	if got := strings.Count(prompt, noteFraming); got != 1 {
-		t.Errorf("the third-party framing line appears %d times, want once for the one note", got)
+	if got := strings.Count(prompt, "<note>\nSource: "); got != 1 {
+		t.Errorf("the note source line appears %d times, want once for the one note", got)
 	}
 	if !strings.Contains(prompt, "written by @mario") {
 		t.Errorf("the triggering comment is not attributed:\n%s", prompt)
@@ -439,8 +411,8 @@ func TestColdPromptStillCarriesEverything(t *testing.T) {
 		"- Task: github:acme/acme-api#123",
 		"- Branch: lf/123-add-a-widget",
 		"- Working directory:",
-		"feature name or ticket id",
-		"may not ask clarifying questions",
+		"- Feature slug: 123-add-a-widget",
+		"- Questions: not allowed",
 		"Title: Add a widget",
 	} {
 		if !strings.Contains(cold, want) {
@@ -514,7 +486,7 @@ func TestResumedPromptIsValidatedToo(t *testing.T) {
 }
 
 // A story worker given a started feature-branch merge sees the conflicting
-// files and the instruction to resolve them, not the deferral text.
+// files, not the deferral facts.
 func TestBuildPromptStoryMergeConflict(t *testing.T) {
 	for _, resume := range []bool{false, true} {
 		in := testPromptInput()
@@ -524,7 +496,7 @@ func TestBuildPromptStoryMergeConflict(t *testing.T) {
 			FeatureBranch: "lf/562-feature", Conflicts: []string{"internal/store/chat_inbox.go"},
 		}
 		prompt := buildPrompt(t, in)
-		for _, want := range []string{"## Merge conflict to resolve", `"lf/562-feature"`, `"lf/597-story"`, `- "internal/store/chat_inbox.go"`, "Do not commit", "answer blocked and name the conflicting files"} {
+		for _, want := range []string{"## Merge conflict to resolve", `"lf/562-feature"`, `"lf/597-story"`, `- "internal/store/chat_inbox.go"`} {
 			if !strings.Contains(prompt, want) {
 				t.Errorf("resume=%v: prompt lacks %q:\n%s", resume, want, prompt)
 			}

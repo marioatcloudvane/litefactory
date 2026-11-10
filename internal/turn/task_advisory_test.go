@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/taskdiscussion"
 )
 
@@ -36,7 +37,9 @@ func TestTaskAdvisoryResultRejectsWorkflowAuthority(t *testing.T) {
 	}
 }
 func TestTaskAdvisoryCapturedClosureAndWorkspace(t *testing.T) {
-	raw, err := CaptureTaskAdvisoryGuidance(t.Context(), config.Paths{}, "Captured analytical facts", "")
+	paths := config.NewPaths(t.TempDir())
+	factorylibtest.Install(t, paths)
+	raw, err := CaptureTaskAdvisoryGuidance(t.Context(), paths, "Captured analytical facts", "")
 	if err != nil {
 		t.Fatal(err)
 	}

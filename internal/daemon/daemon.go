@@ -19,7 +19,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/discordcomponent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
@@ -202,8 +201,6 @@ type Options struct {
 	// Paths locates the owner instruction package.
 	Paths         config.Paths
 	GoBuildCaches config.GoBuildCaches
-	// Instructions supplies per-invocation captures; nil uses the shared package.
-	Instructions instructionpackage.CaptureSource
 
 	// Judge is the isolated advisory service; nil explains unavailability.
 	Judge *turn.JudgeService
@@ -248,6 +245,9 @@ type Options struct {
 	BugAgent     agent.Kind
 	DefaultAgent agent.Kind
 	Classifiers  map[agent.Kind]agent.Classifier
+	// ModeRole reads the mode classifier role for a repository; nil reads
+	// mode/mode-classifier.md from the repository's linked installed team.
+	ModeRole func(context.Context, store.Repo) ([]byte, error)
 	// DB is the open, migrated database. Required.
 	DB *store.DB
 
@@ -432,7 +432,8 @@ type Daemon struct {
 	alertSender              alerts.Transport
 	alertChannel, alertOwner string
 	instructionPaths         config.Paths
-	instructions             instructionpackage.CaptureSource
+	// modeRole reads the mode classifier role; nil reads the repository's linked team.
+	modeRole func(context.Context, store.Repo) ([]byte, error)
 
 	judge            *turn.JudgeService
 	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
@@ -617,7 +618,7 @@ func New(opts Options) (*Daemon, error) {
 		access:           opts.Access,
 		accessWorkflows:  opts.AccessWorkflows,
 		instructionPaths: opts.Paths,
-		instructions:     opts.Instructions,
+		modeRole:         opts.ModeRole,
 		bugAgent:         opts.BugAgent,
 		defaultAgent:     defaultAgent,
 		interval:         interval,

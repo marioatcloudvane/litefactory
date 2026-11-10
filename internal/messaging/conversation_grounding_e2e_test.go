@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -151,7 +152,7 @@ func TestConversationGroundingDetailsOwnerJourney(t *testing.T) {
 				return strings.ReplaceAll(text, groundingSecret, "[redacted]"), nil
 			}
 			service.EnableResearch(nil, reader)
-			if err = service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "factory-work", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: conversationAdapter(t, provider, executable, root)}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
+			if err = service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "factory-work", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: conversationAdapter(t, provider, executable, root)}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
 				t.Fatal(err)
 			}
 			if err = db.ActivateNaturalScan(ctx, "3", "100"); err != nil {

@@ -86,8 +86,8 @@ func TestPlanResearchDocumentPointers(t *testing.T) {
 		in.SessionArtifactDir = ".aiteam/session"
 		in.SessionArtifactBrief = brief
 		got := buildPrompt(t, in)
-		want := "Read `.aiteam/session/" + brief + "` first for the context already saved there before doing anything else.\n"
-		if !strings.Contains(got, want) || strings.Contains(got, "RESEARCH_TECHNICAL.md") || strings.Contains(got, "Research documents") {
+		want := "- Brief: `.aiteam/session/" + brief + "`\n"
+		if !strings.Contains(got, want) || strings.Contains(got, "RESEARCH_TECHNICAL.md") || strings.Contains(got, "Technical findings") {
 			t.Fatalf("legacy pointer changed: %s", got)
 		}
 	}
@@ -96,7 +96,7 @@ func TestPlanResearchDocumentPointers(t *testing.T) {
 	in.SessionArtifactBrief = "RESEARCH_BRIEF.md"
 	in.SessionArtifactTechnical = "RESEARCH_TECHNICAL.md"
 	got := buildPrompt(t, in)
-	for _, want := range []string{".aiteam/session/RESEARCH_BRIEF.md", ".aiteam/session/RESEARCH_TECHNICAL.md", "Research documents"} {
+	for _, want := range []string{"- Brief: `.aiteam/session/RESEARCH_BRIEF.md`", "- Technical findings: `.aiteam/session/RESEARCH_TECHNICAL.md`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %s", want)
 		}

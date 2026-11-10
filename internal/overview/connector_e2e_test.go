@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"io"
 	"log/slog"
 	"net/http"
@@ -140,7 +141,7 @@ func overviewConnector(t *testing.T, db *store.DB, provider connector.OverviewPr
 	cfg.CookieSecretRef.Env = "TEST_COOKIE_SECRET"
 	control, err := connector.NewLocalControl(ctx, connectorstorage.New(db), connector.NewGrantService(connectorstorage.New(db)))
 	mustOverview(t, err)
-	server, err := connector.New(ctx, connector.Options{Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Now: func() time.Time { return now }, LocalControl: control, Overview: provider, GitHubSecret: "test-only", CookieKey: bytes.Repeat([]byte{7}, 32)})
+	server, err := connector.New(ctx, connector.Options{Guidance: factorylibtest.Connector(), Config: cfg, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Now: func() time.Time { return now }, LocalControl: control, Overview: provider, GitHubSecret: "test-only", CookieKey: bytes.Repeat([]byte{7}, 32)})
 	mustOverview(t, err)
 	handler := server.Handler()
 	client := store.ConnectorClient{ID: "overview-client", Name: "Overview test", AuthMethod: "none", Redirects: []string{"https://client.example/callback"}, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}

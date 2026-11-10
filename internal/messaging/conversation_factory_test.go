@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -58,7 +59,7 @@ func factoryUnitRun(t *testing.T, p *factoryUnitProvider, input ...string) (*fac
 	service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
 	root := filepath.Join(t.TempDir(), "sessions")
 	binding := ConversationBinding{Channel: "2", Name: "owner", Provider: "claude", Model: "fixture"}
-	if err := service.EnableConversations(t.Context(), ConversationOptions{Bindings: []ConversationBinding{binding}, StateRoot: root, Providers: map[string]ConversationProvider{"claude": p}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
+	if err := service.EnableConversations(t.Context(), ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []ConversationBinding{binding}, StateRoot: root, Providers: map[string]ConversationProvider{"claude": p}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
 		t.Fatal(err)
 	}
 	c, err := db.ReadConversation(t.Context(), "discord", "2")

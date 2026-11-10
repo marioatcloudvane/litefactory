@@ -15,6 +15,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/owneraction"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -236,7 +237,7 @@ func TestDiscordComponentOwnerConversationMainPath(t *testing.T) {
 	provider := &componentJourneyProvider{}
 	author := &componentJourneyAuthor{}
 	d := &Daemon{db: db, filter: independentActionFilter{}, log: slog.New(slog.DiscardHandler), webhook: &webhookRuntime{}}
-	opts := &ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", PublicKey: strings.Repeat("ab", 32), OwnerID: "7", ChannelIDs: []string{"3"}}, Token: secrets.NewToken("controlled-component-token"), APIURL: api.server.URL, Client: api.server.Client(), Conversations: &messaging.ConversationOptions{Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: t.TempDir(), Providers: map[string]messaging.ConversationProvider{"claude": provider}}, Standards: &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}}}
+	opts := &ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", PublicKey: strings.Repeat("ab", 32), OwnerID: "7", ChannelIDs: []string{"3"}}, Token: secrets.NewToken("controlled-component-token"), APIURL: api.server.URL, Client: api.server.Client(), Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: t.TempDir(), Providers: map[string]messaging.ConversationProvider{"claude": provider}}, Standards: &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: author}}}
 	if err = d.initChat(opts); err != nil {
 		t.Fatal(err)
 	}

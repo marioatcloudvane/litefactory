@@ -89,7 +89,7 @@ func TestInstallationCaptureAndNativeDelivery(t *testing.T) {
 	source := repoSource()
 	version := sourceVersion(t, team)
 	m, installed := install(t, source, team)
-	if !installed.Integrity || len(installed.Workflows) != 7 {
+	if !installed.Integrity || len(installed.Workflows) != 6 {
 		t.Fatal("incomplete installed release")
 	}
 	clone, err := m.Clone(t.Context(), identity(source), team, version, "custom", "2.0.0")

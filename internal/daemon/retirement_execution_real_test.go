@@ -106,7 +106,7 @@ func (x *retirementExecFixture) daemon(t *testing.T) *daemon.Daemon {
 	if x.executionDB != nil {
 		db = x.executionDB
 	}
-	d, err := daemon.New(daemon.Options{DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}}, ToolProfiles: config.DefaultToolProfiles().Permissions, DB: db, Forge: x.f.client, Filter: x.f.filter, Turn: x.f.turns, Reporter: x.f.reporter, InstanceID: "retirement-test", Logger: x.f.logger, Retirement: x.options})
+	d, err := daemon.New(daemon.Options{ModeRole: baseTeamModeRole, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}}, ToolProfiles: config.DefaultToolProfiles().Permissions, DB: db, Forge: x.f.client, Filter: x.f.filter, Turn: x.f.turns, Reporter: x.f.reporter, InstanceID: "retirement-test", Logger: x.f.logger, Retirement: x.options})
 	if err != nil {
 		t.Fatal(err)
 	}

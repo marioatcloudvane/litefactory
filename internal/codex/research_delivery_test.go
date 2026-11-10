@@ -194,7 +194,7 @@ func manifestDelivery(t *testing.T, delivery *agent.Delivery) {
 // developer instructions must name each delivered skill's bundle path.
 func TestMainRoleDeveloperInstructionsNameDeliveredSkillPaths(t *testing.T) {
 	t.Parallel()
-	const guidance = "Never search the worktree or repository for SKILL.md copies"
+	const guidance = "\n\n# Skill files\n\n"
 	for _, tc := range []struct {
 		name   string
 		skills []string
@@ -241,7 +241,7 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 					t.Errorf("missing %s path %s in %q", name, path, instructions)
 				}
 			}
-			if got := strings.Count(instructions, "SKILL.md"); got != len(tc.skills)+1 {
+			if got := strings.Count(instructions, "SKILL.md"); got != len(tc.skills) {
 				t.Errorf("want only delivered SKILL.md paths, got %d mentions: %q", got, instructions)
 			}
 			if strings.Index(instructions, "implement-result") > strings.Index(instructions, "- team-guidance") {

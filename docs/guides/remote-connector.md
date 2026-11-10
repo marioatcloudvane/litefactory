@@ -327,7 +327,7 @@ the missing consent scopes. A workflow whose tools the grant cannot call is left
 out and replaced by a plain "not available here" note that names no tool. An
 optional `topic` returns less: `overview`, `workflows`, `tools`, `scopes`, or the
 name of a tool the grant can call (its full guidance). The guide files live in
-`internal/connector/guidance/guide`; each starts with `topic:` and optional
+`teams/source/factory/connector/guidance/guide` (installed with `litefactory factory install`); each starts with `topic:` and optional
 `needs:` (all listed tools must be callable) or `missing:` (shown when any listed
 tool is not callable) lines, and a workflow also has `job:` and `chain:`, and a reply is capped at 32 KiB. The tool paragraphs
 come from the same per-tool guidance files, so a change there reaches the guide.

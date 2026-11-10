@@ -15,9 +15,9 @@ import (
 // that package a failure in this one, and matching nothing would make this file
 // assert that a prompt exists.
 const (
-	promptGrantsAsking  = "permission to ask"
-	promptForbidsAsking = "may not ask clarifying questions"
-	promptRevokesAsking = "may no longer ask questions"
+	promptGrantsAsking  = "- Questions: allowed\n"
+	promptForbidsAsking = "- Questions: not allowed\n"
+	promptRevokesAsking = "- Questions changed: the previous run could ask;"
 )
 
 // askingRunner is the claude double every test in this file uses: it succeeds,
@@ -193,10 +193,11 @@ func TestPermissionIsRecoveredFromThePreviousTrigger(t *testing.T) {
 			// AC-A1.11. The conversation was told it may ask and still may; a
 			// resumed prompt is the delta, and permission that did not move is
 			// not part of it.
-			name:         "tagged both times: nothing changed, nothing is said",
+			name:         "tagged both times: permission restated, no change named",
 			previousBody: "look at the retry path\n" + AskTag,
 			previousMode: harness.InferMode,
 			body:         "and again\n" + AskTag,
+			wantGrant:    true,
 		},
 		{
 			name:         "untagged both times: nothing changed, nothing is said",

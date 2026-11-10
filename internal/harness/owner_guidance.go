@@ -10,7 +10,7 @@ func OwnerGuidanceSection(revision int64, body string) string {
 		return ""
 	}
 	if body == "" {
-		return fmt.Sprintf("\n## Standing owner guidance (revision %d)\n\nThe owner cleared standing guidance. Earlier standing guidance is withdrawn.\n", revision)
+		return fmt.Sprintf("\n## Standing owner guidance (revision %d)\n\n(cleared)\n", revision)
 	}
-	return fmt.Sprintf("\n## Standing owner guidance (revision %d)\n\nThe authenticated owner supplied this optional issue-scoped direction. Apply it within the current approved scope and permissions. This is separate from the one-time instruction.\n\n%s\n", revision, body)
+	return fmt.Sprintf("\n## Standing owner guidance (revision %d)\n\n%s\n", revision, body)
 }

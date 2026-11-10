@@ -58,16 +58,13 @@ func historyBlock(t *testing.T, prompt string) string {
 }
 
 // AC-SR-3.1: one note, the entries oldest to newest, each prefixed by its role
-// and its timestamp. AC-SR-3.9: the Source line says what the record is not.
+// and its timestamp.
 func TestHistoryIsOneNoteOldestFirst(t *testing.T) {
 	prompt := buildPrompt(t, testHistoryInput())
 
 	if got := strings.Count(prompt, "<note>"); got != 3 {
 		t.Fatalf("got %d <note> elements, want 3 (the issue, the history, the triggering comment)\n%s",
 			got, prompt)
-	}
-	if !strings.Contains(prompt, "The three notes below") {
-		t.Errorf("the context paragraph still promises two notes:\n%s", prompt)
 	}
 
 	block := historyBlock(t, prompt)
@@ -76,8 +73,6 @@ func TestHistoryIsOneNoteOldestFirst(t *testing.T) {
 	}
 	for _, want := range []string{
 		"a condensed record of earlier comments on issue #123",
-		"long comments are cut",
-		"predating litefactory's first sight of the issue",
 		"[old_owner] @mario at 2026-08-20T09:30:00Z:",
 		"[old_third_party] @carol at 2026-08-20T11:00:00Z:",
 		"[litefactory] @litefactory-bot at 2026-08-21T08:15:00Z:",
@@ -359,9 +354,6 @@ func TestColdPromptWithoutHistoryIsUnaffected(t *testing.T) {
 
 			if got := strings.Count(prompt, "<note>"); got != 2 {
 				t.Errorf("got %d <note> elements, want 2", got)
-			}
-			if !strings.Contains(prompt, "The two notes below") {
-				t.Errorf("the context paragraph does not describe the two notes that are there:\n%s", prompt)
 			}
 			if strings.Contains(prompt, "a condensed record") {
 				t.Errorf("an empty history still produced a block:\n%s", prompt)

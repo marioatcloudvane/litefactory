@@ -342,14 +342,6 @@ func TestGraphPlanLostReply_CorrectedRejectionUsesNewIdentity(t *testing.T) {
 	}
 }
 
-func TestPlanNodeGuidance_TellsAgentToRecoverBeforeRetry(t *testing.T) {
-	for _, want := range []string{"request_id", "look up", "before retrying", "identical bytes", "corrected", "new request identity"} {
-		if !strings.Contains(planNodeGuidance, want) {
-			t.Errorf("graph Plan guidance lacks %q", want)
-		}
-	}
-}
-
 // deferringPublisher refuses publication with the discovery-budget deferral the
 // incident saw, before anything is marked sent, while on is set.
 type deferringPublisher struct {

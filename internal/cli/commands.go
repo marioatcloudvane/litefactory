@@ -57,6 +57,7 @@ func Commands() []*Command {
 		newStandardsCommand("book", "diff"),
 		newStandardsCommand("book", "render"),
 
+		newFactoryInstallCommand(),
 		newTeamCommand("install"),
 		newTeamCommand("clone"),
 		newTeamCommand("list"),

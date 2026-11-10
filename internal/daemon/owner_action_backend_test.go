@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/cloudvane/litefactory/internal/connectorstorage"
 	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"io"
 	"log/slog"
@@ -43,7 +44,7 @@ func TestMCPActionsAndHistorySurviveUnavailableDiscord(t *testing.T) {
 			setup := remoteSetupFixture(t)
 			db := setup.DB
 			at := time.Now().UTC().Truncate(time.Millisecond)
-			server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }})
+			server, err := connector.New(t.Context(), connector.Options{Guidance: factorylibtest.Connector(), Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(db), Access: connectorstorage.New(db), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32), Now: func() time.Time { return at }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +60,7 @@ func TestMCPActionsAndHistorySurviveUnavailableDiscord(t *testing.T) {
 				t.Fatal(err)
 			}
 			author := &plainJourneyAuthor{}
-			options := &ChatOptions{Now: func() time.Time { return at }, Standards: &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Store: db, Book: book, Runner: author}}}
+			options := &ChatOptions{Now: func() time.Time { return at }, Standards: &ConversationStandards{DB: db, Book: book, Authoring: &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: author}}}
 			if configured {
 				options.Settings.OwnerID = "7"
 				options.Settings.ChannelIDs = []string{"3"}
@@ -167,7 +168,7 @@ func TestMCPActionsAndHistorySurviveUnavailableDiscord(t *testing.T) {
 
 func TestLazyDiscordJoinsExistingOwnerActionExecutor(t *testing.T) {
 	setup := remoteSetupFixture(t)
-	server, err := connector.New(t.Context(), connector.Options{Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(setup.DB), Access: connectorstorage.New(setup.DB), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32)})
+	server, err := connector.New(t.Context(), connector.Options{Guidance: factorylibtest.Connector(), Config: setup.Config.RemoteConnector, Storage: connectorstorage.New(setup.DB), Access: connectorstorage.New(setup.DB), Logger: setup.Logger, LocalControl: setup.ConnectorControl, GitHubSecret: "fixture", CookieKey: bytes.Repeat([]byte{7}, 32)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/factory"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/messagingstorage"
 	"log/slog"
 	"net/http"
@@ -185,7 +186,7 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 	var principal owneraction.Principal
 	setup := func() {
 		book = &standards.Service{Store: db, OwnerID: 71}
-		author = &standards.Authoring{Store: db, Book: book, Runner: authorFixture}
+		author = &standards.Authoring{Instructions: factorylibtest.Library(t), Store: db, Book: book, Runner: authorFixture}
 		service = messaging.NewWithServices(messagingstorage.New(db), factory.NewMessaging(db), "discord", "7", []string{"3"}, sender, factory.NewHealth(db))
 		service.Protect = func(_ context.Context, s string) (string, error) { return s, nil }
 		operations := &ConversationStandards{DB: db, Book: book, Authoring: author, OwnerID: "7", Authorized: func(context.Context, messaging.StandardsRequest) error { return nil }}
@@ -196,13 +197,13 @@ func TestStandardsConversationOwnerMainPath(t *testing.T) {
 		}
 		principal = owneraction.Principal{OwnerID: "71", OwnerGeneration: current.Generation, Transport: "discord", DiscordOwnerID: "7", ChannelID: "3"}
 		core := &Daemon{db: db, filter: independentActionFilter{}, log: slog.New(slog.DiscardHandler), chat: &chatRuntime{service: service, adapter: sender.adapter}}
-		core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: operations, Now: func() time.Time { return at }}, nil)
+		core.prepareIndependentOwnerActions(&ChatOptions{Settings: config.DiscordChat{OwnerID: "7", ChannelIDs: []string{"3"}}, Conversations: &messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []messaging.ConversationBinding{{Channel: "3"}}}, Standards: operations, Now: func() time.Time { return at }}, nil)
 		core.configureOwnerActions(service, "7", []string{"3"}, sender.adapter)
 		actions = core.ownerActions.actions
 		actions.SetDiscord("7", []string{"3"})
 		actions.SetDelivery(actionApprovalDelivery{sender.adapter})
 		service.EnableOwnerActions(actions, func(context.Context, string) (owneraction.Principal, error) { return principal, nil })
-		if e := service.EnableConversations(ctx, messaging.ConversationOptions{Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner-standards", Provider: "claude", Model: "fixture"}}, StateRoot: root, Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at); e != nil {
+		if e := service.EnableConversations(ctx, messaging.ConversationOptions{Instructions: factorylibtest.Library(t), Factory: true, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner-standards", Provider: "claude", Model: "fixture"}}, StateRoot: root, Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at); e != nil {
 			t.Fatal(e)
 		}
 	}

@@ -171,8 +171,9 @@ flowchart LR
    an unreadable answer, a timeout, a model error or a missing team.
 
 The classifier's role text is `access/access-classifier.md` in the team. A team
-can edit it to change how grants are read; when the team has none, the factory
-default is used.
+can edit it to change how grants are read. There is no factory default: a
+repository without a linked team, or a team without the file, is refused as
+"could not be checked" (reinstall the team from `teams/source`).
 
 ### What the person sees
 

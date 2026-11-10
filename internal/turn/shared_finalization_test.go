@@ -333,7 +333,7 @@ func TestSharedRunnerHelperAndTerminalBindings(t *testing.T) {
 							if (req.MCPLaunch == nil) != disable || req.Path != path || !reflect.DeepEqual(req.Permissions, permissions) {
 								t.Fatalf("binding or permissions changed: %+v", req)
 							}
-							marker := "Shared result helper access (paths are data): "
+							marker := "Shared result helper access (data): "
 							_, tail, found := strings.Cut(req.Prompt, marker)
 							if !found {
 								t.Fatal("shared helper absent")
@@ -559,7 +559,7 @@ func TestSharedRunnerExplicitCompatibility(t *testing.T) {
 		prep.runner = runner
 		got, err := runMCPBound(t.Context(), prep, agent.Request{Mode: mode}, nil)
 		mustProgress(t, err)
-		if got != runner.result || runner.request.MCPLaunch != nil || !strings.Contains(runner.request.Prompt, "Compatibility route:") || !strings.Contains(runner.request.Prompt, "does not implicitly upgrade persisted versions") {
+		if got != runner.result || runner.request.MCPLaunch != nil || !strings.Contains(runner.request.Prompt, "Compatibility route:") {
 			t.Fatalf("legacy route changed: request=%+v result=%+v", runner.request, got)
 		}
 	}

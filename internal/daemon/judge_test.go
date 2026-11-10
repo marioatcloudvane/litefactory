@@ -17,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/gittest"
@@ -131,7 +132,7 @@ func TestJudgeOwnerBareCommandDurableAdvisory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &turn.JudgeService{DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
+	service := &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
 	f.daemon = newJudgeDaemon(t, w, origin, service)
 	f.plantCursor()
 	f.issue("Review the saved Plan")
@@ -245,7 +246,7 @@ func TestJudgeNonOwnerDoesNotLaunchAdvisory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &turn.JudgeService{DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
+	service := &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
 	f.daemon = newJudgeDaemon(t, w, origin, service)
 	f.plantCursor()
 	f.issue("Owner-only saved challenge")
@@ -338,7 +339,7 @@ func TestJudgeAmbiguousPublicationRemainsPendingWithoutRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &turn.JudgeService{DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
+	service := &turn.JudgeService{Library: factorylibtest.Library(t), DB: f.db, Config: cfg, Providers: map[agent.Kind]agent.JudgeRunner{agent.Kind("claude"): runner}, Paths: config.NewPaths(brokerHome), Executable: "/usr/bin/false", Redactor: redact.New(redact.Options{Logger: f.logger})}
 	f.daemon = newJudgeDaemon(t, w, origin, service)
 	f.plantCursor()
 	f.issue("Review the saved Plan")

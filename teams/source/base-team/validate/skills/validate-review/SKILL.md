@@ -1,10 +1,12 @@
 ---
 name: validate-review
 description: Submit one Validate reviewer's findings for the tested commit, each with its evidence, as satisfied, unmet or unverified.
+requires: [run-rules, result-protocol]
 resources:
   - node-result.md
+  - retained-contract.md
 ---
-Review the one commit you were given, then report one finding for each thing your role must cover. Read [node result](node-result.md) before you submit: it carries the worked result. Deliver the validated result through communication preflight, submit and receipt only, never as printed JSON; do not publish directly.
+Review the one commit you were given, then report one finding for each thing your role must cover. Read [node result](node-result.md) before you submit: it carries the worked result. When the prompt carries a managed read-only Validate contract, read [retained contract](retained-contract.md). Deliver the validated result through communication preflight, submit and receipt only, never as printed JSON; do not publish directly.
 
 Use only check IDs from the supplied retained evidence list. A reusable execution
 requirement may cite an executed pass or an inherited pass authenticated by the

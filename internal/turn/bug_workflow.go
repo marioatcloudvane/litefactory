@@ -23,7 +23,6 @@ func BugWorkflowPolicy() WorkflowPolicy {
 		Mode:                      agent.ModeBug,
 		Control:                   graphexec.ControlPolicy{Mode: agent.ModeBug, Responses: []string{"ask", "done"}, Defaults: []string{"ask", "done"}, Ask: "ask"},
 		Decode:                    agentresult.DecodeBugNode,
-		Guidance:                  bugNodeInstructions,
 		Contract:                  validateResearchComment,
 		Render:                    renderSpikeComment,
 		NextStep:                  bugNextStep,
@@ -32,8 +31,6 @@ func BugWorkflowPolicy() WorkflowPolicy {
 		AcceptAfterProcessFailure: true,
 	}
 }
-
-const bugNodeInstructions = "\nFactory invocation: Bug graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id. Do not print a JSON result: terminal text is never read as a result. Read the bug-result skill before you submit.\n"
 
 // BugSpecs is the closed registry for prelaunch built-in asset validation.
 func BugSpecs() (graphexec.Registry, error) {

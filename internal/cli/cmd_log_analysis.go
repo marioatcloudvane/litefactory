@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/factory/localanalysis"
+	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/loganalysis"
 	"github.com/cloudvane/litefactory/internal/logevidence"
@@ -85,7 +86,7 @@ func newLogAnalysisCommand(action string) *Command {
 			if err != nil {
 				return err
 			}
-			svc := &loganalysis.Service{DB: rt.db, RunsRoot: rt.paths.RunsDir(), Executable: executable, Redactor: redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})}
+			svc := &loganalysis.Service{DB: rt.db, Library: factorylib.NewInstalled(rt.paths), RunsRoot: rt.paths.RunsDir(), Executable: executable, Redactor: redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})}
 			owned := localanalysis.New(rt.db, svc)
 			switch action {
 			case "list":

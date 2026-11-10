@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/factorylib/factorylibtest"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -99,7 +100,7 @@ func TestConversationTolerantCorrectionRestartJourney(t *testing.T) {
 		t.Helper()
 		service := New(db, "discord", "1", []string{"2"}, sender, FactoryStatus{DB: db})
 		service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
-		if err := service.EnableConversations(ctx, ConversationOptions{Bindings: []ConversationBinding{binding}, StateRoot: filepath.Join(root, "sessions"), Providers: map[string]ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
+		if err := service.EnableConversations(ctx, ConversationOptions{Instructions: factorylibtest.Library(t), Bindings: []ConversationBinding{binding}, StateRoot: filepath.Join(root, "sessions"), Providers: map[string]ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }, Factory: true}, at); err != nil {
 			t.Fatal(err)
 		}
 		return service

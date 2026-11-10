@@ -3,16 +3,15 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -63,34 +62,14 @@ func TestAccessCheckIsToolFreeStatelessAndParsesTheAnswer(t *testing.T) {
 	}
 }
 
-func TestAccessCheckUsesDefaultRoleWhenBlank(t *testing.T) {
-	answer := `{"type":"result","is_error":false,"result":"{\"decision\":\"deny\",\"reason\":\"outside the grant\"}"}`
+func TestAccessCheckRefusesBlankRole(t *testing.T) {
+	answer := `{"type":"result","is_error":false,"result":"{\"decision\":\"allow\",\"reason\":\"ok\"}"}`
 	f := newFixture(t, dumpPrologue+emit(t, `{"type":"system","subtype":"init","tools":[]}`)+emit(t, answer))
-	pkg, err := instructionpackage.Load(t.Context(), fstest.MapFS{
-		"metadata.yaml":               {Data: []byte("schema: 1\nversion: fixture\n")},
-		"catalogue.yaml":              {Data: []byte("- access-classifier\n")},
-		"agents/access-classifier.md": {Data: []byte("FIXTURE DEFAULT ACCESS ROLE\n")},
-	}, "")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := f.runner.CheckAccess(t.Context(), accessCheckFixtureRequest("")); !errors.Is(err, agent.ErrAccessRoleMissing) {
+		t.Fatalf("blank role: %v", err)
 	}
-	var captured []string
-	f.runner.instructions = advisorCaptureFunc(func(ctx context.Context, role string) (*instructionpackage.RoleCapture, []instructionpackage.Diagnostic, error) {
-		captured = append(captured, role)
-		return pkg.Capture(ctx, role)
-	})
-	result, err := f.runner.CheckAccess(t.Context(), accessCheckFixtureRequest(""))
-	if err != nil {
-		t.Fatalf("CheckAccess: %v", err)
-	}
-	if result.Decision != agent.AccessDeny || result.Reason != "outside the grant" {
-		t.Fatalf("result = %+v", result)
-	}
-	if len(captured) != 1 || captured[0] != "access-classifier" {
-		t.Fatalf("captured roles = %v", captured)
-	}
-	if prompt := homeDump(t, f, "stdin.dump"); !strings.HasPrefix(prompt, "FIXTURE DEFAULT ACCESS ROLE\n") {
-		t.Fatalf("prompt = %q", prompt)
+	if _, err := os.Stat(filepath.Join(f.home, "stdin.dump")); err == nil {
+		t.Fatal("a blank role launched the provider")
 	}
 }
 
