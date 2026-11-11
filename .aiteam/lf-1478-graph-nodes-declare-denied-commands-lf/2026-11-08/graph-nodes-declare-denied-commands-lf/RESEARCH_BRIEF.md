@@ -1,6 +1,8 @@
 # Research brief — #1478 named deny groups
 
-Status: incomplete; owner changed the interface and requested a runtime comparison before answering q1–q4; q5 clarifies agent calls. Inspected commit: 9957dd279d5336448c407194f02e33493326dd82. No implementation, builds or test suites run.
+Status: complete research scope; owner comment 6801158165 says “proceed,” adopting the five previously presented recommendations. Current code rechecked at b4ee395cfe6b32b3c5c9af9722a8356ac2c65307. No implementation, builds or test suites run.
+
+Primary user story: an operator defines reusable restrictions once in settings, and a team selects them on graph agent nodes so agents cannot run the listed full checks through the supported native invocation forms; unsupported restrictions stop launch with an actionable explanation.
 
 ## Outcome ledger
 
@@ -14,10 +16,10 @@ This supersedes inline DOT rules and the original DOT-only configuration require
 The rules must also bind subagents; existing shared restrictions remain intact. (owner said: issue #1478)
 
 ### O-03 Codex enforces every resolved entry or refuses launch with the group, entry and reason
-A private factory-owned configuration home is recommended, pending q1; command policy, filesystem permissions and subagent controls require distinct translations. The previous full-parity claim is withdrawn: supported mappings require evidence from the actual runtime, not just its policy checker. (owner said: issue #1478)
+Use a protected factory-owned configuration area, preserving login, resume and usage tracking (q1=a); command policy, filesystem permissions and subagent controls require distinct translations. The previous full-parity claim is withdrawn: supported mappings require evidence from the actual runtime, not just its policy checker. (owner said: issue #1478)
 
-### O-04 Graph defaults and node groups combine according to the still-open q3
-Recommend additive union with no node escape from graph defaults. (agent's call)
+### O-04 Graph defaults and node groups combine by additive union, so empty node values cannot remove defaults
+(owner said: “proceed,” q3=a)
 
 ### O-05 Graph checks validate group-reference syntax and configured admission resolves groups and validates entries
 Reject raw rules in DOT, malformed references, unknown groups, malformed entries and unknown tool names; syntax validity is separate from runtime support. Static team checks without operator settings cannot check catalogue membership, so configured admission must check it before launch. (agent's call)
@@ -25,23 +27,23 @@ Reject raw rules in DOT, malformed references, unknown groups, malformed entries
 ### O-06 Nodes with no selected groups retain current permission behavior
 No new private Codex home or deny-related argument changes apply to those runs. (owner said: issue #1478)
 
-### O-07 Which shipped team graphs select groups remains open in q2
-Recommend no invented stack-specific commands; cockpit defines its own group and selects it in its local team. (agent's call)
+### O-07 Shipped teams gain no group references; cockpit uses operator settings and its own local team
+(owner said: “proceed,” q2=a)
 
 ### O-08 Documentation explains group syntax, resolution, runtime differences and refusal behavior
 Include a copyable example and native matching limitations. (agent's call)
 
-### O-09 Agent-call entries are included once q5 settles what agent calls means
-Recommend native CLI subagent restrictions; shell-launched agent CLIs are already Bash entries, while factory workflow routing is separate. (agent's call)
+### O-09 Groups may deny all or named native CLI subagents, with unsupported runtime mappings refused and shell-launched CLIs treated as ordinary commands
+(owner said: “proceed,” q5=a)
 
 ### O-10 Groups are optional operator settings activated only by graph references
-Propose settings.denyrules, an empty catalogue by default, no nested groups and no implicit script shorthand; see [deny-group contract](DENY_GROUP_CONTRACT.md) for the proposed interface. (agent's call)
+Use settings.denyrules, an empty catalogue by default, no nested groups and no implicit script shorthand; see [deny-group contract](DENY_GROUP_CONTRACT.md) for the interface. (agent's call)
 
 ### N-01 Factory-run validation checks are unaffected
 These are not the agent's shell commands. (agent's call)
 
 ### N-02 Command matching is a guard rail, not a promise to catch every indirect execution
-Alternate paths and wrappers need explicit coverage; current Claude docs describe wrapper parsing, so the earlier claim that bash wrappers always bypass both runtimes is withdrawn. q4 remains open. (agent's call)
+Use native matching with documented limits and no factory-generated invocation variants; teams list the forms they need, and the earlier blanket claim that bash wrappers bypass both runtimes remains withdrawn. (owner said: “proceed,” q4=a)
 
 ### N-03 No Markdown role changes or wording-pinning tests
 (owner said: issue #1478)
@@ -76,11 +78,19 @@ A private home must be stable for its session, protected against agent edits, an
 >
 > also, list me how this would work in codex vs. claude!
 
-(owner said: comment 6763254390; q1–q4 remain unanswered)
+(owner said: comment 6763254390; the later A-02 settles the deferred choices)
+
+### A-02 q1 private Codex configuration, q2 local teams only, q3 additive defaults, q4 native matching, q5 native subagents — owner: "proceed"
+(owner said: comment 6801158165, accepting all five presented recommendations)
+
+### N-05 Factory workflow routing, automatic invocation variants and changes to cockpit itself are excluded
+(agent's call; implements the selected q2/q4/q5 boundaries)
 
 ## Current findings and corrections
 
-Observed at the inspected commit unless labelled otherwise:
+Earlier findings below were recorded at 9957dd279d5336448c407194f02e33493326dd82 unless labelled otherwise. Current recheck at b4ee395cfe6b32b3c5c9af9722a8356ac2c65307 confirms the settings merge point, unconditional --ignore-rules, existing multi_agent=false control, strict YAML decoding and graph validation boundaries; no lf_deny/denyrules implementation was found in internal, pkg, docs or teams/source. Sources: internal/harness/sandbox.go, internal/harness/settings.go, internal/codex/runner.go, pkg/execution/providers/codex/runner.go, internal/config/config.go, internal/graphexec/registry.go and pkg/execution/graph/validate.go.
+
+Recent relevant history: 80e0dd2f moves agent prompts to teams/source; e4188623 requires isolated test paths and make lint; neither supplies deny groups. Related #1465 and #1468 remain evidenced by merges 44d5c06f and 662ef9b2; fresh issue lookups did not return summaries, so no remote status claim is made. No AGENTS.md was found by repository file search. Applicable guidance is research-mode-feature and plan-go-guidance, with neutral execution packages and internal factory policy ownership retained from #1268.
 
 - F-10: Config is strictly decoded with KnownFields(true); no deny-group catalogue exists. Optional groups must join the operator configuration schema and validation. Sources: internal/config/config.go:41,578 and docs/configuration/config-yaml.md.
 - F-11: Claude documents Agent and Agent(name) denies; Codex already uses features.multi_agent=false in its adapter, but an equivalent selective named-agent ban has not been established. Sources: internal/codex/runner.go:447 and https://code.claude.com/docs/en/permissions#agent-subagents.
@@ -112,7 +122,7 @@ These observations were recorded at 51bf3ddff155cf0c0f6408c1edc1d9a2dfabde75; cu
 
 ## Impact analysis
 
-- Touched: operator config schema/validation and docs; generic graph attributes and configured group resolution; agent request boundary; Claude settings preparation; Codex rule/profile delivery; team sources only if q2 selects them.
+- Touched: operator config schema/validation and docs; generic graph attributes and configured group resolution; agent request boundary; Claude settings preparation; Codex rule/profile delivery; documentation examples for local teams; no shipped team references or role/skill text changes.
 - Depends on it: every graph agent launch and its descendants; authentication, resume and usage collection depend on Codex home handling. Non-graph doctor, judge and conversation behavior remains unchanged.
 - Superseded: previous inline-DOT proposal, not a shipped implementation; generated teamrelease paths in the earlier findings are obsolete.
 - Data and compatibility: optional settings catalogue with no database migration expected; existing teams without references retain behavior. A team that adds a reference requires a matching operator group. No automatic mutation of installed teams or shared settings.
@@ -122,12 +132,11 @@ These observations were recorded at 51bf3ddff155cf0c0f6408c1edc1d9a2dfabde75; cu
 
 Show malformed reference/entry rejection, unknown-group refusal, shared-deny preservation, no-group compatibility, supported command failures in both live runtimes, unsupported-entry refusal, descendant enforcement and preserved resume/usage handling. File mappings must preserve read/write intent or refuse, not silently broaden behavior and claim parity. Run make lint during implementation/validation. These are acceptance obligations, not executed checks.
 
-## Open owner choices
+## Settled choices and evidence boundary
 
-- q1 technical: private Codex delivery route versus Claude-only initial support.
-- q2 business: local team groups versus shipped stack groups.
-- q3 technical: additive defaults versus node replacement.
-- q4 business: explicit native matching versus automatic common command variants.
-- q5 business: native CLI subagent calls versus shell CLI calls versus factory routing.
+All five choices are settled by A-02; no owner questions remain. Exact interface spelling, rejection of empty groups and reference parsing details in the contract are agent calls. The work remains large: configuration/graph admission, runtime policy delivery and compatibility/lifecycle are distinct areas for Plan to cover, not implementation steps prescribed here.
 
-The named-group interface is settled. None of q1–q4 was answered by the owner; do not infer approval from the request for an explanation.
+Live enforcement is not yet proved. Unsupported file semantics or named Codex agents must refuse launch; refusing every Codex command group would not meet O-03 or the original two-runtime command goal. Acceptance must demonstrate at least supported literal command prefixes in both actual runtimes, with descendants covered where delegation is allowed. Policy checker output alone cannot satisfy this.
+
+No database or historical capture migration is expected (inference from the optional config/request boundary); previous inline DOT rules were a research proposal only, so there is no shipped format to migrate. No other replacement was found in the inspected configuration, graph and provider paths. Non-graph callers retain existing behavior. Cancellation and startup errors must leave no runnable unprotected child or stale policy for a different attempt.
+
