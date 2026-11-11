@@ -15,6 +15,18 @@ import (
 )
 
 const hookRecoveryInterval = time.Minute
+
+// hookCheckInterval is how often each linked GitHub repository's webhook
+// delivery log is read for failed deliveries, independently of the hourly
+// listing (#1508). A delivery GitHub could not make is normal; this is what
+// redelivers it within minutes instead of leaving it to the listing.
+const hookCheckInterval = 5 * time.Minute
+
+// hookCheckOverlap re-reads the tail of the previous check's window, so a
+// delivery GitHub records just after a check is not lost between two checks.
+// Intents and accepted-delivery GUIDs keep a re-read delivery from being
+// requested twice.
+const hookCheckOverlap = time.Minute
 const hookRecoveryCapacity = 1000
 const hookRecoveryAttempts = 3
 const hookRecoveryWork = 20
@@ -34,6 +46,16 @@ type hookRecoveryState struct {
 	groups                  [][]github.HookDelivery
 	index                   int
 	intents                 map[string]*hookIntent
+	// lastCheck is when the current or last check started (daemon clock).
+	lastCheck time.Time
+	// since bounds the current check: deliveries older than it were already
+	// looked at by an earlier check. Zero on the first check.
+	since time.Time
+	// passServer is the provider time of the current check's first page and
+	// checkedThrough that of the last completed check.
+	passServer, checkedThrough time.Time
+	// unreadable says the delivery log could not be read on the last check.
+	unreadable bool
 }
 
 type hookIntent struct {
@@ -59,6 +81,9 @@ func (s *hookRecoveryState) resetPage() {
 }
 
 func (s *hookRecoveryState) addPage(page github.HookDeliveryPage) bool {
+	if s.pages == 0 {
+		s.passServer = page.ServerTime
+	}
 	// Date has one-second resolution. Use its upper bound, not local wall time
 	// or first-seen time, to prove an original arose after tracking began.
 	if s.cutoff.IsZero() {
@@ -69,7 +94,14 @@ func (s *hookRecoveryState) addPage(page github.HookDeliveryPage) bool {
 		}
 	}
 	s.pages++
+	// The log is newest first: a delivery older than the window means every
+	// later page is older too, so the check stops paging there.
+	older := false
 	for _, item := range page.Deliveries {
+		if !s.since.IsZero() && !item.DeliveredAt.IsZero() && item.DeliveredAt.Before(s.since) {
+			older = true
+			continue
+		}
 		if len(s.history) >= hookRecoveryCapacity {
 			s.pollingOnly = true
 			s.resetPage()
@@ -77,7 +109,7 @@ func (s *hookRecoveryState) addPage(page github.HookDeliveryPage) bool {
 		}
 		s.history[item.ID] = item
 	}
-	if page.Next != "" {
+	if page.Next != "" && !older {
 		if page.Next == s.cursor || s.pages >= 10 {
 			s.pollingOnly = true
 			s.resetPage()
@@ -106,16 +138,25 @@ func (s *hookRecoveryState) addPage(page github.HookDeliveryPage) bool {
 
 // hookRecoveryUnfinished reports a recovery pass that stopped part-way through
 // the delivery history (another page or more groups to decide). Such a pass
-// continues on the following ticks; a new pass starts only on a listing tick.
+// continues on the following ticks.
 func (d *Daemon) hookRecoveryUnfinished(repo int64) bool {
 	state := d.hookRecovery[repo]
 	return state != nil && (state.cursor != "" || state.groups != nil)
 }
 
-// recoverHookDeliveries replays failed webhook deliveries. It runs on the
-// repository's listing tick (ordinary) and on the ticks that finish a pass the
-// listing tick started; it is not a per-minute poll.
-func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now time.Time, ordinary bool) error {
+// hookCheckDue reports that a repository's delivery log is due its
+// [hookCheckInterval] check. A repository with no state yet is due.
+func (d *Daemon) hookCheckDue(repo int64, now time.Time) bool {
+	state := d.hookRecovery[repo]
+	return state == nil || !now.Before(state.lastCheck.Add(hookCheckInterval))
+}
+
+// recoverHookDeliveries replays failed webhook deliveries. A check starts on
+// the repository's listing tick and every [hookCheckInterval] between them,
+// and an unfinished one continues on the following ticks. It reads only the
+// delivery log, never the issue listing, and an unreadable log never brings
+// the listing forward: the hourly listing stays the only other safety net.
+func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now time.Time) error {
 	version, err := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
 	if err != nil {
 		return err
@@ -155,14 +196,17 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 	if now.Before(state.next) {
 		return nil
 	}
-	// The ordinary listing is the fallback. On a listing tick it runs right
-	// after this; on a tick that only continues an unfinished recovery the
-	// repository is marked owed, so the next tick lists it.
+	if state.cursor == "" && state.groups == nil {
+		// A new check: look only at what arrived since the last completed one.
+		state.lastCheck = now
+		state.since = time.Time{}
+		if !state.checkedThrough.IsZero() {
+			state.since = state.checkedThrough.Add(-hookCheckOverlap)
+		}
+	}
+	// The hourly listing is the fallback; it is never brought forward here.
 	fallback := func(reason string) error {
 		q.log.InfoContext(ctx, "webhook recovery polling fallback", slog.Int64("hook", hook), slog.String("reason", reason))
-		if !ordinary && d.schedule != nil {
-			d.schedule.ListingFailed(q.repo.ID)
-		}
 		return nil
 	}
 	// Without a recorded hook there are no deliveries to replay. Polling the
@@ -199,11 +243,18 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 				return e
 			}
 			state.resetPage()
-			if err := fallback("delivery history unavailable"); err != nil {
-				return err
+			if !state.unreadable {
+				q.log.WarnContext(ctx, "cannot read the webhook delivery log; failed deliveries are not "+
+					"redelivered and a lost webhook waits for the hourly listing",
+					slog.Int64("hook", hook), slog.Any("error", e))
 			}
+			state.unreadable = true
 			state.next = now.Add(hookRecoveryInterval)
 			return nil
+		}
+		if state.unreadable {
+			q.log.InfoContext(ctx, "the webhook delivery log is readable again", slog.Int64("hook", hook))
+			state.unreadable = false
 		}
 		if !state.addPage(page) {
 			return fallback("delivery history incomplete")
@@ -287,6 +338,9 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 	if state.index == len(state.groups) {
 		state.resetPage()
 		state.next = now.Add(hookRecoveryInterval)
+		if !state.passServer.IsZero() {
+			state.checkedThrough = state.passServer
+		}
 	}
 	return nil
 }

@@ -601,11 +601,11 @@ func (d *Daemon) discover(
 			}
 		}
 		if d.connections != nil {
-			// Hook delivery recovery is the listing's safety net, not a poll: a
-			// pass starts on a listing tick and only an unfinished one continues
-			// on the ticks after it.
-			if connectionEnabled && (due[repo.ID] || d.hookRecoveryUnfinished(repo.ID)) {
-				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
+			// Hook delivery recovery reads only the delivery log: a check starts
+			// on a listing tick and every five minutes between them (#1508), and
+			// an unfinished one continues on the ticks after it.
+			if connectionEnabled && (due[repo.ID] || d.hookRecoveryUnfinished(repo.ID) || d.hookCheckDue(repo.ID, now)) {
+				if err := d.recoverHookDeliveries(ctx, q, now); err != nil {
 					if ctx.Err() != nil {
 						return nil, ctx.Err()
 					}
@@ -659,6 +659,7 @@ func (d *Daemon) discover(
 				continue
 			}
 			q.finished = finished
+			result.Issues += q.listed
 			continue
 		}
 		q.listing = true
@@ -1061,6 +1062,9 @@ type repoQueue struct {
 	// repository's cursor and schedule move.
 	listing  bool
 	finished bool
+	// listed is how many distinct tickets the connection-mode change streams
+	// returned this tick; it feeds TickResult.Issues (forge_issues).
+	listed int
 }
 
 // candidate builds a candidate belonging to this repository, with no issue read
