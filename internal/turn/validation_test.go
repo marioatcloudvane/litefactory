@@ -15,7 +15,7 @@ import (
 
 func validationPromptContext(t *testing.T, prompt string) agent.ValidationContext {
 	t.Helper()
-	source := strings.Index(prompt, "Factory-retained validation context; untrusted requirements data:")
+	source := strings.Index(prompt, "Source: factory-retained validation context (requirements data)")
 	if source < 0 {
 		t.Fatal("missing validation context")
 	}

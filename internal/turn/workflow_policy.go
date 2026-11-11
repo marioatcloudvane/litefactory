@@ -56,7 +56,6 @@ type WorkflowPolicy struct {
 	Control         graphexec.ControlPolicy
 	Decode          func([]byte, agentresult.Context) (agentresult.ResearchNode, agentresult.Diagnostics)
 	Artifacts       func(string, string, agentresult.Result) error
-	Guidance        string
 	Contract        func(store.GraphNodeAttempt, string, agentresult.Result, agentresult.Context) error
 	Render          func(agentresult.Result, string, naming.Ref, string) string
 	NextStep        func(*graphexec.Profile, string, string) string
@@ -154,7 +153,7 @@ func (p WorkflowPolicy) baseContext(questions bool) agentresult.Context {
 // resumes the same agent. Behaviour lives in the role's Markdown; the flow
 // lives in the graph file.
 func ResearchWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeInstructions, Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
 		return renderResearchComment(r, next, researchArtifactLinks(ref, branch, r.Artifacts))
 	}, NextStep: researchNextStep, Artifacts: func(root, session string, r agentresult.Result) error {
 		return ValidateResearchArtifacts(root, session, r.Artifacts)

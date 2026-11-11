@@ -148,7 +148,7 @@ func TestValidateRepairOnManagedParentKeepsItsWriteSurface(t *testing.T) {
 			if got.RetainedValidation {
 				t.Fatal("repair run carries the managed read-only Validate narrowing")
 			}
-			if strings.Contains(got.Prompt, "Managed read-only Validate contract") || strings.Contains(got.Prompt, "Factory-retained validation context") {
+			if strings.Contains(got.Prompt, "Managed read-only Validate contract") || strings.Contains(got.Prompt, "factory-retained validation context") {
 				t.Fatal("repair prompt carries the managed read-only Validate contract")
 			}
 			switch payload := got.Permissions.Payload.(type) {

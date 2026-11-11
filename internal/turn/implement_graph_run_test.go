@@ -1073,7 +1073,7 @@ func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
 	if mergeHead != parentTip {
 		t.Fatalf("MERGE_HEAD = %q, want the parent's tip %s", mergeHead, parentTip)
 	}
-	for _, want := range []string{"## Merge conflict to resolve", `"lf/900-feature"`, `- "shared.go"`, "Do not commit"} {
+	for _, want := range []string{"## Merge conflict to resolve", `"lf/900-feature"`, `- "shared.go"`} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the worker prompt lacks %q", want)
 		}
@@ -1532,7 +1532,7 @@ func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *test
 	if mergeHead != mainTip || unmerged != "shared.go" {
 		t.Fatalf("MERGE_HEAD = %q with unmerged %q, want main's tip %s with shared.go unmerged", mergeHead, unmerged, mainTip)
 	}
-	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`, "Do not commit"} {
+	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the resolver prompt lacks %q", want)
 		}

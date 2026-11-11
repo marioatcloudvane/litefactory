@@ -108,7 +108,7 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	// Legacy/unmanaged engineering has no checkpoint owner. It must retain the
 	// legacy tool behavior rather than inventing managed story identities.
 	if (req.Mode == "implement" || req.Mode == "validate") && session == nil {
-		req.Prompt += "\nCompatibility route: this unmanaged or submission-v1 scope retains its existing frozen workflow and required output. This launch does not implicitly upgrade persisted versions.\n"
+		req.Prompt += "\nCompatibility route: unmanaged or submission-v1 scope\n"
 		return runPreparedProvider(ctx, prep, req)
 	}
 	p, spec, err := prepareMCP(ctx, prep, req, session)

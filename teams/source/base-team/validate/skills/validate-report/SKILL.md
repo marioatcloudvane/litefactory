@@ -1,6 +1,7 @@
 ---
 name: validate-report
 description: Write the short owner summary of one Validate run - headline, what failed, why, the next step and one recommendation per open item with an action from the fixed list - or answer one owner comment on it.
+requires: [run-rules, result-protocol]
 resources:
   - node-result.md
 ---

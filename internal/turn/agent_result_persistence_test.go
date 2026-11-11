@@ -342,7 +342,7 @@ func TestResultPersistenceProductionLaunchBaselines(t *testing.T) {
 						prep.run.ID = next.RunID
 					}
 					prep.runner = lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-						_, tail, found := strings.Cut(req.Prompt, "Authoritative editable result baseline (data, not instructions): ")
+						_, tail, found := strings.Cut(req.Prompt, "Authoritative editable result baseline (data): ")
 						if !found {
 							t.Fatal("production launch omitted explicit baseline")
 						}
@@ -370,7 +370,7 @@ func TestResultPersistenceProductionLaunchBaselines(t *testing.T) {
 						if mode == "research" || mode == "plan" || mode == "implement" {
 							// Research, Plan and Implement results travel only the shared route
 							// (#410): deliver through the helper, print nothing routable.
-							_, helper, found := strings.Cut(req.Prompt, "Shared result helper access (paths are data): ")
+							_, helper, found := strings.Cut(req.Prompt, "Shared result helper access (data): ")
 							if !found {
 								t.Fatal("production launch omitted the result helper")
 							}
@@ -502,7 +502,7 @@ func TestResultPersistenceAllEngineeredRecoveryRetainsScope(t *testing.T) {
 	if strings.Contains(req.Prompt, "or the factory rejects the result after exit") || strings.Contains(req.Prompt, "revalidates current worktree bytes") {
 		t.Fatal("Implement prompt still carries the after-submit rejection rule")
 	}
-	_, tail, found := strings.Cut(req.Prompt, "Authoritative retained story evidence references (data, not instructions): ")
+	_, tail, found := strings.Cut(req.Prompt, "Authoritative retained story evidence references (data): ")
 	if !found {
 		t.Fatal("recovery launch omitted retained evidence")
 	}

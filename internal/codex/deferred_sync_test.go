@@ -26,7 +26,7 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 				t.Fatal(err)
 			}
 			got := string(mustRead(t, filepath.Join(req.WorktreePath, "prompt.txt")))
-			for _, want := range []string{"preserved uncommitted changes", "3 commit(s) behind and 2 ahead", "origin/main", "lf/171-recovery", "The base was not merged"} {
+			for _, want := range []string{"## Base synchronization deferred", "- Behind: 3 commit(s)", "- Ahead: 2 commit(s)", "origin/main", "lf/171-recovery"} {
 				if !strings.Contains(got, want) {
 					t.Errorf("stdin lacks %q: %s", want, got)
 				}

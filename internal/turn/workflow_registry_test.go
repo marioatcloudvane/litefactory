@@ -67,7 +67,6 @@ func TestWorkflowRegistry_AdmissionRefusesUnboundPolicy(t *testing.T) {
 		{"no decoder", func(p *WorkflowPolicy) { p.Decode = nil }},
 		{"no mode", func(p *WorkflowPolicy) { p.Mode = "" }},
 		{"foreign control mode", func(p *WorkflowPolicy) { p.Control.Mode = agent.ModePlan }},
-		{"no guidance", func(p *WorkflowPolicy) { p.Guidance = "" }},
 		{"handlers without preparation", func(p *WorkflowPolicy) { p.Handlers = &WorkflowHandlers{} }},
 		{"handlers without failure builder", func(p *WorkflowPolicy) { p.Handlers, p.Failure = &WorkflowHandlers{Prepare: prepare}, nil }},
 	} {

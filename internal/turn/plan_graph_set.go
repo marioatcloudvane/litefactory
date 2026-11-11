@@ -15,7 +15,7 @@ import (
 // stage is and is not. The set is about the whole parent scope and names no story;
 // real story keys exist only after the owner promotes a set.
 func planSetBinding(s planbrief.PlanState) string {
-	text := "\nFactory-selected stage: set; whole-parent scope; result branch: result.payload.plan.storyset. The factory records the set under a revision it derives from your content and publishes it on the parent issue; only the owner promotes a set, and no story exists before that. Story keys, revisions and other factory values are factory-owned. Guidance: plan-evidence node-result resource.\n"
+	text := "\nFactory-selected stage: set; whole-parent scope; result branch: result.payload.plan.storyset. The factory records the set under a revision it derives from your content and publishes it on the parent issue; only the owner promotes a set, and no story exists before that. Story keys, revisions and other factory values are factory-owned.\n"
 	if s.StorySet != nil && !s.StorySet.Promoted {
 		text += fmt.Sprintf("A set with revision %s is already proposed and not promoted. A changed set gets a new revision and a new review.\n", s.StorySet.Revision)
 	}

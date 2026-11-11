@@ -70,7 +70,10 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	sort.Strings(p.skills)
 	// Project guidance is discovered through the host's normal channel. Copying
 	// it into this appended system file would elevate legacy dispatch directives.
-	p.files["bootstrap.md"] = []byte("The factory selected " + string(policy.Mode) + " and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + policy.Guidance + skillNamesBinding(node.Skills))
+	// Only data: the mode, the node's task from its role Markdown and the
+	// node's skill names. What the agent does with them is in the role and
+	// the run-rules skill.
+	p.files["bootstrap.md"] = []byte("Mode: " + string(policy.Mode) + "\n\nEffective node task:\n" + node.Task + "\n" + skillNamesBinding(node.Skills))
 	if req.Agent == store.AgentCodex {
 		// Only fixed shipped role/task text belongs here. Owner requests, replies,
 		// prior findings and helper credentials stay on the invocation's stdin.
@@ -116,5 +119,5 @@ func skillNamesBinding(skills []string) string {
 		names = append(names, path.Base(skill))
 	}
 	sort.Strings(names)
-	return "\n\nSkills for this node: " + strings.Join(names, ", ") + ". In anything you write for the owner, refer to a skill by its name, never by a file path or link on this machine; local paths are not published.\n"
+	return "\nSkills for this node: " + strings.Join(names, ", ") + "\n"
 }

@@ -23,15 +23,15 @@ func TestImplementAttemptGuidanceAsksOnlyTheStoryWorkerToDelegateAndStatesTheLim
 		delegate bool
 		limit    string
 	}{
-		{"worker with runner timeout", implement, worker, timedRunner(6 * time.Hour), true, "wall-clock limit of 21600 seconds"},
-		{"smaller node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "45"}, timedRunner(6 * time.Hour), true, "wall-clock limit of 2700 seconds"},
-		{"larger node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "50"}, timedRunner(20 * time.Minute), true, "wall-clock limit of 3000 seconds"},
-		{"budget without runner timeout", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "30"}, nil, true, "wall-clock limit of 1800 seconds"},
-		{"effective parent beats node", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "120"}, effectiveWorkerLimit(61 * time.Second), true, "wall-clock limit of 61 seconds"},
-		{"exact legacy seconds", implement, worker, effectiveWorkerLimit(121 * time.Second), true, "wall-clock limit of 121 seconds"},
-		{"no known limit", implement, worker, nil, true, "This attempt has a wall-clock limit; there is no other budget"},
-		{"other implement node", implement, map[string]string{"lf_agent_markdown": "go-unit-test-engineer"}, timedRunner(time.Hour), false, "wall-clock limit of 3600 seconds"},
-		{"main role delivery decides the role", agent.Request{Mode: string(agent.ModeImplement), Delivery: &agent.Delivery{MainRole: "story-worker"}}, map[string]string{}, timedRunner(time.Hour), true, "wall-clock limit of 3600 seconds"},
+		{"worker with runner timeout", implement, worker, timedRunner(6 * time.Hour), true, "Wall-clock limit: 21600 seconds"},
+		{"smaller node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "45"}, timedRunner(6 * time.Hour), true, "Wall-clock limit: 2700 seconds"},
+		{"larger node budget wins", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "50"}, timedRunner(20 * time.Minute), true, "Wall-clock limit: 3000 seconds"},
+		{"budget without runner timeout", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "30"}, nil, true, "Wall-clock limit: 1800 seconds"},
+		{"effective parent beats node", implement, map[string]string{"lf_agent_markdown": "story-worker", "lf_budget": "120"}, effectiveWorkerLimit(61 * time.Second), true, "Wall-clock limit: 61 seconds"},
+		{"exact legacy seconds", implement, worker, effectiveWorkerLimit(121 * time.Second), true, "Wall-clock limit: 121 seconds"},
+		{"no known limit", implement, worker, nil, true, "Wall-clock limit: set by the factory"},
+		{"other implement node", implement, map[string]string{"lf_agent_markdown": "go-unit-test-engineer"}, timedRunner(time.Hour), false, "Wall-clock limit: 3600 seconds"},
+		{"main role delivery decides the role", agent.Request{Mode: string(agent.ModeImplement), Delivery: &agent.Delivery{MainRole: "story-worker"}}, map[string]string{}, timedRunner(time.Hour), true, "Wall-clock limit: 3600 seconds"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -42,7 +42,7 @@ func TestImplementAttemptGuidanceAsksOnlyTheStoryWorkerToDelegateAndStatesTheLim
 			if strings.Contains(got, implementDelegationRequest) != c.delegate {
 				t.Errorf("delegation request present=%v, want %v: %q", !c.delegate, c.delegate, got)
 			}
-			if !strings.Contains(got, c.limit) || !strings.Contains(got, "there is no other budget (no token, context or cost budget)") {
+			if !strings.Contains(got, c.limit) || !strings.Contains(got, "no token, context or cost budget") {
 				t.Errorf("the limit sentence lacks %q: %q", c.limit, got)
 			}
 		})

@@ -1,6 +1,7 @@
 ---
 name: validate-repair-report
 description: Submit the repair report of one Validate repair step as repaired, handback or blocked, with every failure and what was done about it.
+requires: [run-rules, result-protocol]
 resources:
   - node-result.md
 ---

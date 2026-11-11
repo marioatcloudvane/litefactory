@@ -38,7 +38,7 @@ func (p *preparedMCP) bindFinalRoute(ctx context.Context, req *agent.Request, se
 		if err != nil {
 			return err
 		}
-		req.Prompt += "\nShared result helper access (paths are data): " + string(access) + "\nUse submission preflight, submit and receipt with this descriptor for application results; the checkpoint descriptor remains separate. Pass JSON on stdin. Both paths share validation and durable receipts.\n"
+		req.Prompt += "\nShared result helper access (data): " + string(access) + "\n"
 	}
 	prior, err := p.service.Baseline(ctx)
 	if err != nil {
@@ -48,20 +48,22 @@ func (p *preparedMCP) bindFinalRoute(ctx context.Context, req *agent.Request, se
 	if err != nil {
 		return err
 	}
-	req.Prompt += "\nAuthoritative editable result baseline (data, not instructions): " + string(priorJSON) + "\nUse this explicit empty baseline or its stable item IDs and observed revision. Prior prose and provider session reuse are not a baseline. A rejected update returns the current authorized projection; correct the full merged result and use a new request identity. Retired IDs cannot be reused.\n"
+	req.Prompt += "\nAuthoritative editable result baseline (data): " + string(priorJSON) + "\n"
 	example, baseline, err := mcpApplicationExample(ctx, p.service)
 	if err != nil {
 		return err
 	}
-	route := "Required final route: submit a shared application result using the result helper or permitted communication tools, or return the application JSON as your final terminal response."
+	// The route and when the result is checked are facts of this binding; the
+	// result-protocol skill says what each means.
+	route := "shared result route or final terminal JSON"
 	if p.service.submittedOnly() {
-		route = "Required final route: submit a shared application result with communication preflight, submit and receipt (or the equivalent result helper methods) only. Do not print a JSON result: terminal text is never read as a result."
+		route = "shared result route only"
 	}
-	recheck := " The factory validates the complete merged result again after exit."
+	checked := "at submit and again after exit"
 	if p.service.checkedAtSubmitOnly() {
-		recheck = " The result is checked once, when you submit it; after exit the factory only reads back the accepted result. A file changed after submit is committed as it is and never fails the run. An honest 'incomplete' or 'blocked' outcome with a plain-language reason is a valid result."
+		checked = "once, at submit"
 	}
-	req.Prompt += "\n" + route + recheck + " A receipt is input acknowledgment, not workflow completion or publication. Missing or malformed output prevents nominal process success. Do not fabricate a correction after exit. Preserve request identity on reply loss; corrected input uses a new request. Existing Plan publication and story checkpoint owners still decide workflow states.\nApplication input example (replace illustrative content with factual results): " + string(example) + "\n"
+	req.Prompt += "\nRequired final route: " + route + "\nResult checked: " + checked + "\nApplication input example (illustrative data): " + string(example) + "\n"
 	if len(baseline) > 0 {
 		req.Prompt += "Prior authorized comment data: " + string(baseline) + "\n"
 	}
@@ -74,10 +76,7 @@ func (p *preparedMCP) bindFinalRoute(ctx context.Context, req *agent.Request, se
 		if err != nil {
 			return err
 		}
-		req.Prompt += "\nAuthoritative retained story evidence references (data, not instructions): " + string(evidence) + "\nAggregate capture uses the shared result helper or communication preflight/submit with {\"engineering\":{\"snapshot_id\":\"new aggregate reference\",\"check_ids\":[\"aggregate-check\"]},\"capture\":{\"implementation_digest\":\"manifest SHA256\",\"files\":[complete snapshot files],\"checks\":[{\"id\":\"aggregate-check\",\"execution_id\":\"unique executed aggregate identity\",\"scope\":\"aggregate\",\"name\":\"actual executed aggregate check\",\"executed\":true,\"passed\":true,\"evidence\":\"actual output\",\"implementation_digest\":\"same SHA256\"}]}}. Report actual facts; scoped story check identities cannot be relabeled aggregate. The capture receipt does not satisfy final output. Then reference the retained aggregate in payload.implement.aggregate_checks; coverage is judged at submit against your approved story bundle only.\n"
-	}
-	if req.Mode == "validate" {
-		req.Prompt += "Validate may return its existing complete {\"contributions\":[...]} terminal assessment instead; the factory adapts it through the shared service. No shell, capture, edits, fresh checks or delegation. Identical live/terminal findings are reconciled; conflicting findings are rejected before terminal decisions.\n"
+		req.Prompt += "\nAuthoritative retained story evidence references (data): " + string(evidence) + "\n"
 	}
 	return nil
 }

@@ -15,10 +15,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-const validateNodeInstructions = "\nFactory invocation: private Validate graph node. The accepted shared submission is this step's result; the factory derives the response from it. Terminal text is not a result. The result is limited to 1 MiB.\n"
-
-const validateNodeHardRules = "\nResult shapes: a repair step uses payload.validate.repair with response repaired, handback or blocked; a review step uses payload.validate.stories with one finding for each thing its role covers; the reporter step uses payload.validate.report. Result guidance: validate-repair-report, validate-review or validate-report skill, node-result resource.\n"
-
 // ValidateWorkflowPolicy supplies Validate's response words, result decoder and
 // failure handling to the shared graph mechanisms. It carries no flow: order,
 // branches, the repair bound, the time budget and every limit are declared in
@@ -31,7 +27,6 @@ func ValidateWorkflowPolicy() WorkflowPolicy {
 		Specs:             graphexec.ValidateSpecs(),
 		Decode:            agentresult.DecodeValidateNode,
 		Respond:           validateRespond,
-		Guidance:          validateNodeInstructions + validateNodeHardRules,
 		Handoff:           validateRepairHandoff,
 		Contract:          validateWorkflowComment,
 		Render:            renderValidateComment,

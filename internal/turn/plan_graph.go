@@ -28,7 +28,7 @@ import (
 // shared result route, judged by the Plan decoder and retained as a reference to the
 // accepted shared result; the policy carries no result format of its own.
 func PlanWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec(), graphexec.PlanGateSpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Failure: planFailureCandidate, Render: renderPlanFailure}
 }
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
@@ -669,7 +669,7 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	}
 	binding := planSetBinding(s)
 	if r.stage != planSetStage {
-		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. These fields are factory-owned; draft.key must equal the selected story. Guidance: plan-evidence node-result resource.\n", r.selected, r.stage)
+		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; factory-bound fields: stage, candidate, request identity, upstream references, shared-decision revision; draft.key: %s\n", r.selected, r.stage, r.selected)
 		binding += planOwnerRolesBinding(r.scope)
 		binding += planStorySizingBinding(s.StorySet, r.selected)
 		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 && d.Candidate != "" {

@@ -614,9 +614,6 @@ func (r *validateReviewers) runReadOnlyNode(ctx context.Context, l validateNodeL
 	if delivery != nil {
 		prompt = "Instruction bundle: " + delivery.Root + "\n\n" + prompt
 	}
-	if delivery == nil || delivery.MainRole == "" {
-		prompt += policy.Guidance
-	}
 	request.Prompt = prompt + harness.OwnerGuidanceSection(ownerGuidance.Revision, ownerGuidance.Body)
 	prep := &preparation{standardsRole: l.StandardsRole, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}

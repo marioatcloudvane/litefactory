@@ -20,7 +20,6 @@ func SpikeWorkflowPolicy() WorkflowPolicy {
 		Mode:                      agent.ModeSpike,
 		Control:                   SpikeControlPolicy(),
 		Decode:                    agentresult.DecodeSpikeNode,
-		Guidance:                  spikeNodeInstructions,
 		Contract:                  validateResearchComment,
 		Render:                    renderSpikeComment,
 		NextStep:                  spikeNextStep,
@@ -39,8 +38,6 @@ func SpikeControlPolicy() graphexec.ControlPolicy {
 func SpikeSpecs() (graphexec.Registry, error) {
 	return WorkflowSpecs(SpikeWorkflowPolicy())
 }
-
-const spikeNodeInstructions = "\nFactory invocation: Spike graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id. The accepted submission is this step's result. Do not print a JSON result: terminal text is never read as a result. The factory publishes your comment as written. To ask the owner, submit result.outcome incomplete with a nonblank result.reason and nonempty result.questions; the factory posts them and waits for the owner's reply. When you are finished, submit result.outcome completed with no questions; the factory posts your report. Read the spike-result skill before you submit.\n"
 
 // spikeFailureCandidate authors the owner-facing account of a failed Spike step.
 // It claims no findings: the outcome is blocked and the reason carries the cause.
