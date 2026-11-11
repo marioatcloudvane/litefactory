@@ -642,7 +642,7 @@ func (f *scopeFixture) hookSubscription(t *testing.T) {
 }
 
 // C2: hook recovery whose delivery history is unavailable inspects once and
-// marks the repository owed a listing instead of recovering the source itself;
+// neither recovers the source itself nor brings the listing forward (#1508);
 // recovery (actor 0) and session checks are cached separately.
 func TestContainerScopeHookRecoveryFallbackInspectsOnce(t *testing.T) {
 	for _, session := range []bool{false, true} {
@@ -658,14 +658,14 @@ func TestContainerScopeHookRecoveryFallbackInspectsOnce(t *testing.T) {
 				ctx, checks := withContainerChecks(f.d.discoveryContext(projectContext(t.Context(), f.repo.ID)))
 				defer checks.close()
 				ctx = context.WithValue(ctx, recoveryTickKey{}, now)
-				if err := f.d.recoverHookDeliveries(ctx, q, now, false); err != nil && !errors.Is(err, ErrDiscoveryDeferred) {
+				if err := f.d.recoverHookDeliveries(ctx, q, now); err != nil && !errors.Is(err, ErrDiscoveryDeferred) {
 					t.Fatal(err)
 				}
 				if _, err := f.db.GetTicketRecoveryPosition(t.Context(), f.tickets.ID); !errors.Is(err, store.ErrNotFound) {
 					t.Fatalf("hook recovery recovered the source itself: %v", err)
 				}
-				if !f.d.schedule.Due(f.repo.ID, now) {
-					t.Fatal("unavailable delivery history did not mark the repository owed a listing")
+				if f.d.schedule.Due(f.repo.ID, now) {
+					t.Fatal("unavailable delivery history brought the listing forward")
 				}
 				if session {
 					if _, err := f.d.readIssue(sessionContext(ctx, f.parent.ID), f.task.forgeRepo, scopeParent); err != nil {
