@@ -129,6 +129,7 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if since.Before(position.EnrollmentAt) {
 		since = position.EnrollmentAt
 	}
+	listed := make(map[string]struct{})
 	for _, stream := range []string{"tickets", "replies"} {
 		if stream == "tickets" && position.TicketsComplete || stream == "replies" && position.RepliesComplete {
 			continue
@@ -157,6 +158,13 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 		if err != nil {
 			return false, err
 		}
+		for _, snapshot := range page.Tickets {
+			listed[snapshot.Ref.Locator.Key] = struct{}{}
+		}
+		for _, locator := range page.Locators {
+			listed[locator.Key] = struct{}{}
+		}
+		q.listed = len(listed)
 		next, err := encodedRecoveryCursor(page.Next)
 		if err != nil {
 			return false, err
