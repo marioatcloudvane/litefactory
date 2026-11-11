@@ -1,0 +1,59 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Drafted reusable deny groups, additive graph and node selection, and Claude enforcement for operator review. Invalid selections and unsupported launches refuse before an agent starts. Existing protections and runs without selections remain compatible. Codex enforcement stays in the separate story from the owner-promoted set. Research settles the intent; the draft records the remaining assumptions and native-matching evidence limits. The owner reviews this story intent before it advances.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "create",
+          "draft": {
+            "key": "story-001",
+            "name": "Named deny groups with Claude enforcement",
+            "user_story": {
+              "actor": "operator configuring graph-based agent runs",
+              "want": "define reusable groups of denied actions, select them for a graph or agent node, and have Claude enforce the selected restrictions",
+              "benefit": "keep agents from running selected checks, accessing selected files or delegating selected work, without repeating restriction lists for every node",
+              "notes": [
+                "Covers: O-01, O-02, O-04, O-05, O-06, O-07, O-08, O-09, O-10.",
+                "Ruling: O-03 — Codex enforcement is deferred to the separate Codex story in the owner-promoted set; this story refuses Codex launches with selected restrictions it cannot enforce — keeps the shared group interface and Claude delivery together — until the Codex story lands, operators cannot use selected groups with Codex.",
+                "Ruling: O-08, O-09 — documentation and native-subagent enforcement here cover Claude and explain Codex refusal; Codex support follows in the separate story — follows the owner-promoted split — the full two-runtime outcome remains incomplete until that story lands.",
+                "Assumption: The exact group and reference syntax settled in Research remains the interface; no additional owner intent decision is needed.",
+                "Assumption: No existing configuration format is retired and no stored data migration is needed. Native matching and live descendant enforcement remain evidence limits for later review."
+              ]
+            },
+            "problem": "Operators cannot currently define a reusable set of forbidden agent actions and select it for individual graph runs. Repeating rules makes restrictions inconsistent, and accepting a restriction that the chosen runtime cannot enforce would give operators false confidence. Operators need selected restrictions to add to existing protections, with a clear refusal before an unprotected agent starts.",
+            "in_scope": [
+              "Optional named groups in operator settings, empty by default. Each group contains a nonempty list of explicit command, file-read, file-edit or native-subagent restrictions; no nested groups or script shorthand.",
+              "Graph defaults and agent-node selections contain group names only. Combine them additively, remove duplicates without changing meaning, and prevent empty node selections from clearing graph defaults.",
+              "Validate group definitions and reference syntax. Reject raw rules in graph selections, malformed references or entries, unknown tools, unknown groups and selections on non-agent nodes. Static graph checks need no operator catalogue; configured admission resolves selected names before launch.",
+              "Apply supported selected restrictions to Claude alongside existing shared restrictions, including native subagents. Support denying all or named native subagents; treat a CLI started through a shell as an ordinary command.",
+              "Resolve selected restrictions for each new or resumed attempt and keep them fixed for that attempt. Refuse unsupported rules or runtime launches before any partially protected agent starts; explain the affected selection, group, entry and reason so the operator can correct it.",
+              "Preserve current permissions and rule loading for runs without selected groups, and preserve existing credential, state and sandbox protections for every run.",
+              "Keep shipped teams free of group references. Explain how operators use their own local teams and settings, with a copyable example, group syntax, additive selection, supported native matching, runtime differences and refusal behavior."
+            ],
+            "not_in_scope": [
+              "N-01 Factory-run validation checks are unaffected\nThese are not the agent's shell commands. (agent's call)",
+              "N-02 Command matching is a guard rail, not a promise to catch every indirect execution\nUse native matching with documented limits and no factory-generated invocation variants; teams list the forms they need, and the earlier blanket claim that bash wrappers bypass both runtimes remains withdrawn. (owner said: “proceed,” q4=a)",
+              "N-03 No Markdown role changes or wording-pinning tests\n(owner said: issue #1478)",
+              "N-04 The earlier Bash/Read/Edit-only exclusion is superseded by O-09\n(owner said: comment 6763254390 explicitly includes agent calls)",
+              "K-01 Shared credential and state restrictions remain intact and selected groups only add restrictions\n(owner said: issue #1478)",
+              "K-02 No mode, workflow, step names or team-specific deny entries are hard-coded in Go\n(owner said: issue #1478)",
+              "K-03 Runs without selected groups retain the existing rule-loading behavior\nDo not import unrelated personal or project Codex allow rules when enabling factory restrictions. (agent's call)",
+              "K-04 make lint must pass in later implementation validation\n(owner said: issue #1478)",
+              "K-05 Codex authentication, session resume, usage collection and existing sandbox limits remain functional\nA private home must be stable for its session, protected against agent edits, and receive the correct restrictions on each attempt. (agent's call)",
+              "N-05 Factory workflow routing, automatic invocation variants and changes to cockpit itself are excluded\n(agent's call; implements the selected q2/q4/q5 boundaries)",
+              "Codex enforcement of selected groups; it is delivered by the separate Codex story. Until supported, selected-group Codex launches refuse.",
+              "Changes to non-graph doctor, judge or conversation behavior; automatic changes to operator settings or installed teams.",
+              "Retirement of an existing configuration format or migration of stored data."
+            ],
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false
+          }
+        }
+      }
+    }
+  }
+}
