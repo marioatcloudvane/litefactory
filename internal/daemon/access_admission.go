@@ -315,7 +315,13 @@ func (d *Daemon) waitingTarget(ctx context.Context, t *task) (access.Target, boo
 	if node == "" {
 		node = wait.OriginNode
 	}
-	target := access.Target{Entry: access.EntryAnswer, Workflow: agent.Workflow(definition.Workflow), Node: node}
+	target := access.Target{Entry: access.EntryAnswer, Node: node}
+	// A mode-owned definition pins only its mode; the workflow follows from it.
+	workflow, err := agent.ResolveWorkflow(agent.Workflow(definition.Workflow), agent.Mode(definition.Mode))
+	if err != nil {
+		return target, true, nil //nolint:nilerr // Fail closed: an unknown workflow is refused as unchecked.
+	}
+	target.Workflow = workflow
 	if d.accessWorkflows == nil {
 		// Without the definition the approve reply is unknown: fail closed.
 		target.Workflow = ""
