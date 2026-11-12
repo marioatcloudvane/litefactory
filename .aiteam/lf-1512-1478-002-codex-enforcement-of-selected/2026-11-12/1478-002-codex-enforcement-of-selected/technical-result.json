@@ -1,0 +1,178 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "The architecture reuses the shared deny-group contract and adds a protected Codex launch path. Literal command prefixes use native forbidden rules; unsupported file patterns and named-agent bans refuse before launch. Session storage stays shared with the existing runtime so adding or removing groups can preserve resume and usage records. The current usage reader needs special care because it does not follow CODEX_HOME. Provider documentation and versioned source support this design; no live agent enforcement was measured. The owner can review these technical choices at this story’s architecture gate. Acceptance shaping still owns the tasks and proof requirements.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "draft": {
+            "key": "story-002",
+            "name": "Codex enforcement of selected deny groups",
+            "user_story": {
+              "actor": "operator configuring graph-based Codex agent runs",
+              "want": "have Codex enforce the restrictions selected through reusable deny groups, or refuse to start when any selected entry cannot be enforced",
+              "benefit": "prevent selected agent actions without losing existing protections, login, resumed sessions or usage records",
+              "notes": [
+                "Covers: O-03, O-06, O-08, O-09.",
+                "Ruling: O-08, O-09 — this story completes the Codex documentation and native-subagent portions; the shared interface and Claude portions remain in the prerequisite story — follows the owner-promoted split — neither story alone provides the full two-runtime outcome.",
+                "Assumption: The prerequisite supplies the settled group definitions, additive graph and node selection, validation and resolved entries; this story consumes that interface without changing it.",
+                "Assumption: No existing configuration format is retired and no stored data migration is needed.",
+                "Evidence limit: Exact command, file and native-subagent mappings remain unproved in the live Codex runtime. Unsupported meanings must refuse launch; refusing every command group does not meet this story. No further owner intent decision is open."
+              ]
+            },
+            "problem": "Operators need the same selected restrictions when a graph uses Codex. Accepting a group while ignoring an entry would give false confidence that an action is blocked. Operators need useful command restrictions, clear refusals for unsupported rules, and continued access to their login, resumed work and usage records.",
+            "in_scope": [
+              "Consume the selected groups from the prerequisite, including the additive graph and node selections. Replace the temporary Codex refusal for supported selections without changing the group interface.",
+              "Enforce supported command restrictions in actual Codex runs, including at least literal command prefixes. Keep native matching limits explicit; a policy-checker result alone does not establish live enforcement.",
+              "Handle selected file-read, file-edit and native-subagent restrictions according to their intended meaning. Support denying all or named native subagents only where that meaning can be enforced; otherwise refuse. Do not silently turn an edit-only restriction into a read ban or a named-agent restriction into a ban on all agents.",
+              "Apply the effective selected restrictions to native descendants wherever delegation is allowed. Treat an independently shell-launched CLI as an ordinary command, with the documented command-matching limits.",
+              "Refuse before launch if any selected entry lacks a supported, meaning-preserving mapping. Identify the runtime, selected group, entry, reason and graph or node when available, so the operator can correct the selection and retry. Never start with only part of the selected policy.",
+              "Use a protected factory-owned configuration area for selected runs. Keep policy outside agent edits, preserve existing sandbox and shared credential/state protections, and prevent unrelated personal or project allow rules from weakening the policy.",
+              "Resolve current selections for every new or resumed attempt and keep them fixed during that attempt. Preserve session identity, authentication, resume and usage collection; prevent stale restrictions or concurrent attempts from applying another attempt’s policy.",
+              "Preserve existing behavior for runs without selected groups, including existing rule loading and the absence of new deny-related private homes or launch arguments. Leave non-graph callers unchanged.",
+              "Keep cancellation and startup failures from leaving an unprotected running child or policy that can affect another attempt; allow a corrected selection to be retried safely.",
+              "Explain Codex support, unsupported entries, native matching limits, refusal and correction behavior, and session compatibility in the existing group documentation. Keep the shared example and runtime comparison consistent with actual support."
+            ],
+            "not_in_scope": [
+              "N-01 Factory-run validation checks are unaffected\nThese are not the agent's shell commands. (agent's call)",
+              "N-02 Command matching is a guard rail, not a promise to catch every indirect execution\nUse native matching with documented limits and no factory-generated invocation variants; teams list the forms they need, and the earlier blanket claim that bash wrappers bypass both runtimes remains withdrawn. (owner said: “proceed,” q4=a)",
+              "N-03 No Markdown role changes or wording-pinning tests\n(owner said: issue #1478)",
+              "N-04 The earlier Bash/Read/Edit-only exclusion is superseded by O-09\n(owner said: comment 6763254390 explicitly includes agent calls)",
+              "K-01 Shared credential and state restrictions remain intact and selected groups only add restrictions\n(owner said: issue #1478)",
+              "K-02 No mode, workflow, step names or team-specific deny entries are hard-coded in Go\n(owner said: issue #1478)",
+              "K-03 Runs without selected groups retain the existing rule-loading behavior\nDo not import unrelated personal or project Codex allow rules when enabling factory restrictions. (agent's call)",
+              "K-04 make lint must pass in later implementation validation\n(owner said: issue #1478)",
+              "K-05 Codex authentication, session resume, usage collection and existing sandbox limits remain functional\nA private home must be stable for its session, protected against agent edits, and receive the correct restrictions on each attempt. (agent's call)",
+              "N-05 Factory workflow routing, automatic invocation variants and changes to cockpit itself are excluded\n(agent's call; implements the selected q2/q4/q5 boundaries)",
+              "Redefining group syntax, settings validation, additive graph selection or Claude enforcement; these belong to the prerequisite story.",
+              "Changes to non-graph doctor, judge or conversation behavior; automatic changes to operator settings, installed teams or shipped team group references.",
+              "A promise of full Claude/Codex permission parity, unsupported file or named-subagent mappings, or protection against every indirect shell action.",
+              "Retirement of an existing configuration format or migration of stored data."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-001"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "architecture": {
+              "general": [
+                {
+                  "area": "Fit and work mode",
+                  "decision": "S-01 is a feature. Consume story-001’s immutable resolved policy and replace its Codex refusal only for supported entries. Keep the approved intent, Covers/Ruling notes and every N-/K- boundary. The supplied L size warrants explicit configuration, session and failure boundaries; there is no configuration retirement or database migration.",
+                  "rationale": "At repository commit a4216283bad41ab8d7f6659f03751d0fbb41d715 the existing launch, native delivery, process cleanup and usage seams are reusable. The prerequisite is retained Plan intent, not an implementation present in this checkout. Do not duplicate its catalogue, parser, additive graph selection or configured admission."
+                },
+                {
+                  "area": "Ownership and interfaces",
+                  "decision": "Keep group provenance, capability decisions, protected directories and session coordination in internal/codex. Reuse internal/agent.Request and the prerequisite policy handoff. Add an explicit opt-in rule-loading option to pkg/execution/providers/codex.Options, with the existing ignore-rules behavior as its default. The neutral provider receives prepared runtime options, never group names or graph semantics.",
+                  "rationale": "native.Arguments currently always appends --ignore-rules; internal/codex.Run prepares args, environment, usage and native.Execute. This boundary allows selected graph launches to change without changing non-graph callers, classifiers, doctor, judge or conversation behavior."
+                },
+                {
+                  "area": "Command mapping and provider guarantee",
+                  "decision": "Support Bash literal token prefixes ending in :* by emitting forbidden prefix_rule entries. Start with plain whitespace-separated literal tokens; reject quoting, expansions, operators, internal wildcards and exact-command forms whose semantics cannot be preserved. Do not generate alternate invocations. Native shell parsing and executable resolution define the matching boundary. [Rules documentation](https://learn.chatgpt.com/docs/agent-configuration/rules) was checked on 2026-11-12.",
+                  "rationale": "The docs describe experimental rules and strongest-decision precedence, but frame them around outside-sandbox execution. Versioned [Codex 0.160.0 exec policy](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/exec_policy.rs) maps a forbidden match to rejection; [tool orchestration](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/orchestrator.rs) rejects it before execution. This supports feasibility, not live certification. Pin the supported runtime capability set; checker output alone cannot establish inside-sandbox enforcement or enable an unverified version."
+                },
+                {
+                  "area": "File and named-agent capability boundary",
+                  "decision": "Initially refuse selected Read, Edit and Agent(name) entries with a precise unsupported-mapping reason. Support bare Agent using the existing native multi-agent disable control, preserving any existing delegation ban. Never translate Edit into deny-read, map a named agent to all agents, or accept a named ban merely because its role was not delivered.",
+                  "rationale": "The [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) exposes filesystem read/write/deny profiles and a global multi_agent switch, not equivalent selective native Read/Edit or named-agent denies. Filesystem restrictions can affect subprocesses and have platform-specific glob behavior. Unsupported mappings are explicitly allowed by this story; command-prefix support remains required. This is a capability decision, not a claim of parity."
+                },
+                {
+                  "area": "Native descendants",
+                  "decision": "Keep the same protected configuration folders and rule set for the parent and all native descendants, including resumed children. Preserve factory role/model/skill delivery and all existing permission ceilings. A child cannot substitute an older attempt’s policy or broaden permissions through role configuration. Refuse a launch configuration whose descendant policy cannot be preserved; do not silently disable delegation to compensate.",
+                  "rationale": "[Subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents) states that children inherit sandbox and approval settings. Versioned [child launch code](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/agent/control/spawn.rs) and exec_policy child_uses_parent_exec_policy check configuration-folder and policy compatibility. Actual descendant and resume enforcement still need live evidence. An independently shell-launched CLI remains an ordinary command under N-02."
+                },
+                {
+                  "area": "Protected configuration and additive permissions",
+                  "decision": "For selected runs use a stable factory-owned Codex configuration home keyed by the existing factory session Ref, outside every agent-writable root. Publish a complete validated rules/config generation atomically while holding the session lease. Admit only this generated user layer; mark the launch project untrusted in the generated trust configuration to exclude its .codex config, hooks and rules. Never copy personal config, trust grants, allow rules or project rules. Retain mandatory system/managed restrictions and reject conflicts.",
+                  "rationale": "[Advanced configuration](https://learn.chatgpt.com/docs/config-file/config-advanced) documents CODEX_HOME and exclusion of untrusted project layers. Rules load beside active config layers. Selected launches must load the generated home instead of using --ignore-user-config against it, and omit --ignore-rules explicitly. Strict parsing and protected artifacts are required; Unix mode 0700 alone does not protect files from an agent running as the same user."
+                },
+                {
+                  "area": "Sandbox and credential/state protection",
+                  "decision": "Keep the current sandbox choice, cache grants, submission root, network limits and protected metadata/credential paths. Deny agent writes to the generated home and all policy targets, including through symlinks or broad ancestor grants. Revalidate containment against worktree, extra roots, caches, submission roots and temporary roots before launch; refuse unsafe placement. Keep approval escalation from weakening these restrictions. Do not enable a broader sandbox to make rules work.",
+                  "rationale": "internal/codex.args already composes writable roots and a named read-only reviewer profile. Selected policy must compose with those exact permissions, not replace them with a generic workspace profile. Preserve shared protections from docs/configuration/permissions.md and existing delivery. Native processes may access runtime credentials/state; agent tool permissions must not gain that access."
+                },
+                {
+                  "area": "Session and authentication compatibility",
+                  "decision": "Separate configuration ownership from runtime state. Keep the operator’s existing canonical runtime session store and state database as the backing store. Selected private homes expose only required runtime-state links, never config or rules links; point sqlite_home at the same existing state location. Reuse the file-auth link pattern from linkDoctorAuth so refresh uses the existing credential source. Keep HOME unchanged. Validate the effective credential storage mode before switching homes; do not claim a file link preserves a home-keyed keyring login.",
+                  "rationale": "SessionRef.Ref is known before launch and stays stable; Resume is the native thread ID. Shared canonical runtime storage allows existing threads to enter selected mode and later return to the unchanged no-selection path without copying or migrating rollouts. The [authentication documentation](https://learn.chatgpt.com/docs/auth) distinguishes file and keyring storage. Assumption: the current default file-auth route is the initial supported route; a different credential mode needs a meaning-preserving native bridge or an actionable prelaunch capability refusal, never a fresh unauthenticated run or copied secret in logs."
+                },
+                {
+                  "area": "Attempt isolation and concurrency",
+                  "decision": "Resolve current selections once per new or resumed attempt through story-001, then freeze them across process-start retries and existing cold fallback. Serialize launches that share the same factory session or native resume ID with a host-owned cross-process lease held until process-tree shutdown and usage drain. Different sessions have separate configuration homes. Replace rules from the new snapshot instead of appending; keep the active generation immutable while children exist.",
+                  "rationale": "Stable session configuration is required for native inheritance, while per-attempt policy must be fresh. A lease reconciles those needs and prevents concurrent attempts overwriting a running policy. Apply the same session exclusion at the graph dispatch boundary for selected-to-unselected transitions, without adding deny arguments or a private home to an unselected launch. Cancellation while waiting never starts a child."
+                },
+                {
+                  "area": "Usage and historical evidence",
+                  "decision": "Continue reading the canonical runtime rollout store directly, not through the private-home symlink. Keep root/descendant identity, before-launch byte baselines, final drain, bounded inventory and historical revalidation. Pass an explicit trusted rollout root to the native collector only if the existing HOME-based source is not the actual canonical store; retain the current default for all unchanged callers.",
+                  "rationale": "Current pkg/execution/providers/codex/usage_rollout.go uses HOME/.codex/sessions, not CODEX_HOME, and rejects symlinked source directories. usage_historical.go repeats this path and rejects symlinked evidence. Merely changing the process environment is insufficient. Using the original canonical store preserves historical lookup and avoids weakening no-follow evidence checks or treating missing descendant records as zero usage."
+                },
+                {
+                  "area": "Admission, failures and recovery",
+                  "decision": "Compile every selected entry and validate the complete generated policy before process creation. Parse-check rules with the selected binary, validate strict native config and required supported flags, then verify protected artifact identity immediately before every start retry. Any unsupported entry, malformed generated rule, missing capability, lease failure or unsafe path refuses the whole launch with runtime, group, original entry, reason and available graph/node. Never fall back to an unprotected launch.",
+                  "rationale": "Codex policy-loading error recovery is not a substitute for factory admission. Reuse native.Execute cancellation and KillSubtree; release the lease only after the process tree is stopped and usage collection is finished. Preserve session state after startup failure. Remove only unactivated temporary generations; a corrected attempt replaces the failed generation safely. No credentials enter diagnostics."
+                },
+                {
+                  "area": "Shared surfaces and order",
+                  "decision": "The overlap with story-001 is internal/agent/request.go, internal/codex/runner.go, graph request/fallback handoff in internal/turn, and docs/configuration/config-yaml.md, permissions.md, coding-agents.md, docs/workflow/activities.md and docs/cli/teams.md. Additional local seams are pkg/execution/providers/codex/runner.go, usage_rollout.go and usage_historical.go, plus internal/codex authentication/session helpers. Keep story-002 dependent on story-001; no set revision is needed.",
+                  "rationale": "The existing dependency orders the shared contract and documentation edits. There is no unordered sibling in the supplied two-story set. Do not alter catalogue schemas, graph routing, shipped team references or Markdown roles. Extend the existing shared example/runtime comparison instead of creating a competing group guide."
+                },
+                {
+                  "area": "Standards, guidance and evidence limits",
+                  "decision": "Apply go, agent-setup and owner-report. Keep Go responsible for policy data and hard enforcement, with no new behavioral instruction strings. Later behavioral verification uses the declared Go toolchain and make lint. Live CLI enforcement is an explicit environment/owner check unless that CLI is a declared test dependency; documentation receives semantic and structural review, not wording pins.",
+                  "rationale": "The applicable standards categories are agent-guidance and testing, both read. Existing violation encountered: internal/turn/research_agent.go:534 embeds a delegation instruction in Go and line 550 injects it; leave its disposition to the operator outside this story. This review read code/provider docs and ran codex --version and exec --help (0.160.0); it ran no builds, tests or live agents. There is no frontend or service/database layer."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Resolved selected policy",
+                  "definition": "Reuse the prerequisite’s immutable ordered entries, selected groups and graph/node provenance. Compile into a native policy value with supported command prefixes and an optional global delegation prohibition.",
+                  "constraints": "No new group syntax or database entity. Empty selection takes the old path. Keep each original entry available for diagnostics; never drop a failed translation or broaden its meaning."
+                },
+                {
+                  "entity": "Session configuration binding and attempt generation",
+                  "definition": "A deterministic protected path from task identity and SessionRef.Ref owns generated config/rules and a host-only generation manifest. The manifest binds the frozen policy digest, native binary/capability identity, canonical runtime-state targets and current attempt.",
+                  "constraints": "No persisted factory schema migration. One active lease per logical/native session. Canonical state targets are validated host inputs, not paths from transcripts. Never use a native ID as an unchecked path component. Retain session storage; replace only policy generations."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Selected launch preparation",
+                  "contract": "internal/codex consumes the existing snapshot, compiles all entries, acquires the session lease and builds a protected generated home. The generated config carries only necessary runtime/auth/state bindings and explicit trust exclusions. Compose native delivery, model, thinking, MCP and existing sandbox options before strict validation. Return prepared args/env, canonical usage source and cleanup as one owned launch value.",
+                  "rationale": "A single prepared launch prevents mismatches between policy, process arguments and usage collection. The selected path is explicit; no global runner mutation leaks into concurrent calls."
+                },
+                {
+                  "element": "Command compiler and rule loading",
+                  "contract": "Strip only the trailing :* from supported Bash patterns, parse plain literal tokens without invoking a shell, and serialize escaped literal strings into forbidden prefix_rule records. Validate the whole generated rules file with the selected Codex binary. Enable native rule loading only for this protected launch; keep default native.Options behavior unchanged.",
+                  "rationale": "Passing Claude syntax through or using a shell parser that expands values would change meaning. Runtime version support and live tool-path evidence remain separate from syntactic checker success."
+                },
+                {
+                  "element": "Session backing store and usage",
+                  "contract": "The private configuration home stays fixed for the session; only its host-owned active generation changes under lease. Bridge sessions/archived sessions and native state to the original canonical store as required by the supported CLI, without moving stored data. The usage reader opens the real canonical store directly with its existing no-follow checks. Preserve Ref, Resume and usage attribution through retries, resumed attempts and cold fallback.",
+                  "rationale": "A private home per attempt would split resume state. Keeping private storage permanently after groups are removed would violate no-selection compatibility. Shared runtime backing with isolated policy addresses both constraints; implementation must preserve native state-file locking."
+                },
+                {
+                  "element": "Startup verification and teardown",
+                  "contract": "Complete compilation, capability checks and artifact publication before native.Execute. Combine delivery verification with policy identity/containment verification in BeforeLaunch on every retry. Keep the lease and artifacts alive until descendants terminate and usage is drained. On any error use existing graph diagnostics, with no partial protection or silent fresh-session substitution.",
+                  "rationale": "The current runner already provides process lifecycle and cancellation seams. Protection must hold before the first tool call and throughout native descendant lifetime, including startup failures and cancellation."
+                }
+              ]
+            },
+            "guidance": [
+              "go",
+              "agent-setup",
+              "owner-report"
+            ]
+          },
+          "expected_revision": "6ed4938662d8ea37599f09b5f819beae719d8af44d63ade9848dc845608e8582",
+          "changed_sections": [
+            "architecture",
+            "guidance"
+          ]
+        }
+      }
+    }
+  }
+}
