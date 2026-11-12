@@ -374,14 +374,24 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 		}
 	}
 	notices := []messagingstate.ChatNotice{}
+	held := make(map[int64]bool, len(before.Pending))
+	for _, id := range before.Pending {
+		held[id] = true
+	}
 	for _, r := range records {
 		after.LastID = max(after.LastID, r.ID)
+		id := strconv.FormatInt(r.ID, 10)
+		fingerprint := r.TaskRef + "@" + store.FormatTime(r.At)
 		if source == "transitions" || source == "owner_waits" {
-			after.Seen[strconv.FormatInt(r.ID, 10)] = r.TaskRef + "@" + store.FormatTime(r.At)
+			after.Seen[id] = fingerprint
 		}
 		if !r.Ready {
 			after.Pending = append(after.Pending, r.ID)
-			if r.StopOrigin == "" {
+			// A parked wait's stop notice is admitted together with the
+			// position that first holds the wait pending. Rendering it again
+			// on every pass while the wait stays unresolved would re-read the
+			// issue once per pass and use up the provider quota (#1513).
+			if r.StopOrigin == "" || (held[r.ID] && before.Seen[id] == fingerprint) {
 				continue
 			}
 		}
