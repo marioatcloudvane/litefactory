@@ -1,0 +1,167 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "The architecture reuses graph admission and protected per-run Claude settings to enforce selected deny groups. Rules stay fixed within an attempt and are refreshed on resume; unsupported launches stop before an agent starts. The design covers cold fallback and launches without Bash, where restrictions could otherwise be lost. Codex remains refused for selected groups until the dependent story adds enforcement. Provider documentation supports native matching and subagent inheritance; live enforcement has not been verified. Existing Go-embedded delegation guidance is recorded as a standards violation for separate operator review. The architecture is ready for owner review; acceptance shaping still owns tasks and criteria.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "draft": {
+            "key": "story-001",
+            "name": "Named deny groups with Claude enforcement",
+            "user_story": {
+              "actor": "operator configuring graph-based agent runs",
+              "want": "define reusable groups of denied actions, select them for a graph or agent node, and have Claude enforce the selected restrictions",
+              "benefit": "keep agents from running selected checks, accessing selected files or delegating selected work, without repeating restriction lists for every node",
+              "notes": [
+                "Covers: O-01, O-02, O-04, O-05, O-06, O-07, O-08, O-09, O-10.",
+                "Ruling: O-03 — Codex enforcement is deferred to the separate Codex story in the owner-promoted set; this story refuses Codex launches with selected restrictions it cannot enforce — keeps the shared group interface and Claude delivery together — until the Codex story lands, operators cannot use selected groups with Codex.",
+                "Ruling: O-08, O-09 — documentation and native-subagent enforcement here cover Claude and explain Codex refusal; Codex support follows in the separate story — follows the owner-promoted split — the full two-runtime outcome remains incomplete until that story lands.",
+                "Assumption: The exact group and reference syntax settled in Research remains the interface; no additional owner intent decision is needed.",
+                "Assumption: No existing configuration format is retired and no stored data migration is needed. Native matching and live descendant enforcement remain evidence limits for later review."
+              ]
+            },
+            "problem": "Operators cannot currently define a reusable set of forbidden agent actions and select it for individual graph runs. Repeating rules makes restrictions inconsistent, and accepting a restriction that the chosen runtime cannot enforce would give operators false confidence. Operators need selected restrictions to add to existing protections, with a clear refusal before an unprotected agent starts.",
+            "in_scope": [
+              "Optional named groups in operator settings, empty by default. Each group contains a nonempty list of explicit command, file-read, file-edit or native-subagent restrictions; no nested groups or script shorthand.",
+              "Graph defaults and agent-node selections contain group names only. Combine them additively, remove duplicates without changing meaning, and prevent empty node selections from clearing graph defaults.",
+              "Validate group definitions and reference syntax. Reject raw rules in graph selections, malformed references or entries, unknown tools, unknown groups and selections on non-agent nodes. Static graph checks need no operator catalogue; configured admission resolves selected names before launch.",
+              "Apply supported selected restrictions to Claude alongside existing shared restrictions, including native subagents. Support denying all or named native subagents; treat a CLI started through a shell as an ordinary command.",
+              "Resolve selected restrictions for each new or resumed attempt and keep them fixed for that attempt. Refuse unsupported rules or runtime launches before any partially protected agent starts; explain the affected selection, group, entry and reason so the operator can correct it.",
+              "Preserve current permissions and rule loading for runs without selected groups, and preserve existing credential, state and sandbox protections for every run.",
+              "Keep shipped teams free of group references. Explain how operators use their own local teams and settings, with a copyable example, group syntax, additive selection, supported native matching, runtime differences and refusal behavior."
+            ],
+            "not_in_scope": [
+              "N-01 Factory-run validation checks are unaffected\nThese are not the agent's shell commands. (agent's call)",
+              "N-02 Command matching is a guard rail, not a promise to catch every indirect execution\nUse native matching with documented limits and no factory-generated invocation variants; teams list the forms they need, and the earlier blanket claim that bash wrappers bypass both runtimes remains withdrawn. (owner said: “proceed,” q4=a)",
+              "N-03 No Markdown role changes or wording-pinning tests\n(owner said: issue #1478)",
+              "N-04 The earlier Bash/Read/Edit-only exclusion is superseded by O-09\n(owner said: comment 6763254390 explicitly includes agent calls)",
+              "K-01 Shared credential and state restrictions remain intact and selected groups only add restrictions\n(owner said: issue #1478)",
+              "K-02 No mode, workflow, step names or team-specific deny entries are hard-coded in Go\n(owner said: issue #1478)",
+              "K-03 Runs without selected groups retain the existing rule-loading behavior\nDo not import unrelated personal or project Codex allow rules when enabling factory restrictions. (agent's call)",
+              "K-04 make lint must pass in later implementation validation\n(owner said: issue #1478)",
+              "K-05 Codex authentication, session resume, usage collection and existing sandbox limits remain functional\nA private home must be stable for its session, protected against agent edits, and receive the correct restrictions on each attempt. (agent's call)",
+              "N-05 Factory workflow routing, automatic invocation variants and changes to cockpit itself are excluded\n(agent's call; implements the selected q2/q4/q5 boundaries)",
+              "Codex enforcement of selected groups; it is delivered by the separate Codex story. Until supported, selected-group Codex launches refuse.",
+              "Changes to non-graph doctor, judge or conversation behavior; automatic changes to operator settings or installed teams.",
+              "Retirement of an existing configuration format or migration of stored data."
+            ],
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup",
+              "owner-report"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Fit and work mode",
+                  "decision": "S-01 is a feature, with no retirement or stored-data migration. Add the optional catalogue and selection path to existing configuration, graph admission and provider adapters. Preserve the approved intent and all Covers, Ruling, N- and K- notes.",
+                  "rationale": "The supplied M story crosses settings, graph dispatch and Claude settings delivery. Current code at a77e52f1d819faeea47401d6602be9d0db1ef463 has these seams but no denyrules or lf_deny implementation; no replacement framework is needed."
+                },
+                {
+                  "area": "Ownership and reuse",
+                  "decision": "Keep group parsing/resolution in a small internal policy module shared by config, graphexec and provider adapters. Keep factory group names, configuration lookup and runtime support policy out of pkg/execution. Reuse internal/graphexec.Validate and its NodeErrors hook; validate graph defaults before neutral validation and node references before terminal-node early return.",
+                  "rationale": "The neutral validator has a closed value vocabulary; its existing caller hook permits free-form reference checks without changing neutral graph semantics. Do not force group names into AttributeSpec.Values or use its duplicate-rejecting list parser. Agent membership follows the registered agent activity, never workflow or node names."
+                },
+                {
+                  "area": "Admission and compatibility",
+                  "decision": "Validate every group structurally on config load. Static team/graph checks validate references without loading operator settings. Configured admission resolves graph defaults and each agent node selection, rejecting unknown names before launch; runtime capability checks use the actual selected provider. Empty effective selection follows the existing launch path without new settings loads or deny-related arguments.",
+                  "rationale": "Separating syntax, catalogue membership and runtime support allows portable local teams while preventing false protection. Explicit lf_deny on non-agent nodes, including terminals and judge/control activities, is invalid even if empty. Graph defaults apply to agent activities only."
+                },
+                {
+                  "area": "Attempt lifetime",
+                  "decision": "Resolve selected rules from current operator configuration once for each new or resumed attempt, then clone and freeze the resolved policy for that attempt. Reuse config.Load behind an injectable read boundary; do not mutate other startup settings. Carry the same snapshot through capacity retries and cold fallback after resume refusal.",
+                  "rationale": "A daemon-startup catalogue or a resumed transcript is not current policy. internal/turn/research_agent.go currently reconstructs cold requests and explicitly copies Graph and StackProfile; it must also preserve this policy. Failure to reload selected configuration refuses launch rather than reusing stale rules."
+                },
+                {
+                  "area": "Claude delivery and permissions",
+                  "decision": "Extend internal/harness settings preparation to append selected native denies to existing permissions.deny and the required shared denyRules. Preserve all other settings and sandbox limits. Write one complete protected per-attempt settings file atomically and pass it through the existing --settings argument. Ensure selected restrictions are prepared even when the tool surface contains no Bash.",
+                  "rationale": "prepareSandbox already reads the operator settings and uses writeFileAtomic beside the run log, but runner.go currently enters it only for read-only or Bash-enabled runs. A shared settings-document preparation helper avoids missing file/delegation rules without forcing a shell sandbox on a shell-free run. Malformed permissions objects or deny arrays must refuse, not be overwritten silently."
+                },
+                {
+                  "area": "Native provider guarantees",
+                  "decision": "Use native Bash matching, including trailing :*, and native Agent/Agent(name) denies. Denies take precedence over allows. Read/Edit remain native file-tool rules; they do not guarantee all subprocess access is blocked. Read may also prevent writes. Keep existing OS sandbox protections. Source: [Claude permissions](https://code.claude.com/docs/en/permissions), checked 2026-11-12.",
+                  "rationale": "The documented interface supports the intended guard rail, not exhaustive indirect-execution prevention. Do not generate command variants or treat a shell-launched CLI as native delegation. File anchors differ: // is absolute, ~/ is home-relative, and / in a settings file is source-relative; translating selected paths must not anchor them at the run-log directory."
+                },
+                {
+                  "area": "Native descendants and evidence limits",
+                  "decision": "Deliver restrictions through session permissions, not subagent tools/disallowedTools frontmatter. Native subagents inherit parent permission rules, and session Bash denies apply to them. Agent denies can block all or named types. Source: [Claude subagents](https://code.claude.com/docs/en/sub-agents), checked 2026-11-12.",
+                  "rationale": "Frontmatter disallowedTools can remove an entire tool even when a specifier is supplied. Settings preserve selective restrictions. This is a documentation-backed design, not live enforcement evidence. Later live verification must cover supported parent and descendant behavior and resume; do not silently substitute disabling all delegation for a named restriction."
+                },
+                {
+                  "area": "Unsupported providers and startup failures",
+                  "decision": "Reject selected-group Codex launches in internal/codex before process creation; keep a defensive adapter check even after admission. Claude compilation also rejects unsupported semantics before spawning. Return graph/node reference, group, entry and a specific reason. Cancellation, file-write failure or capability refusal leaves no unprotected child and uses existing cleanup/error paths.",
+                  "rationale": "A partial list is unsafe. No-group Codex retains --ignore-rules, authentication, session identity, usage collection and sandbox behavior. Story-002 replaces the refusal with supported translations; this story does not introduce a private Codex home or alter factory-run checks."
+                },
+                {
+                  "area": "Shared edit surfaces and order",
+                  "decision": "Shared surfaces are internal/agent/request.go, internal/turn graph_activity.go, graph_node.go and research_agent.go, internal/config config.go/validate.go/template.go, internal/graphexec validation, internal/codex/runner.go, and docs/configuration/config-yaml.md, permissions.md, coding-agents.md, docs/workflow/activities.md and docs/cli/teams.md. Story-002 must reuse the selected-policy contract and extend the runtime documentation after story-001.",
+                  "rationale": "The promoted set already has story-002 depending on story-001, which orders the known overlapping edits. No unordered sibling collision was found and no set revision is needed. Claude-only settings code belongs here; no shipped team gets group references."
+                },
+                {
+                  "area": "Guidance and standards",
+                  "decision": "Go supplies policy data and enforces invariants; no new agent instruction prose, hard-coded team commands or role changes. Use the declared Go toolchain for behavioral verification and retain make lint as a later obligation. Review docs semantically and structurally, without wording/hash pins; live CLI checks are explicit owner/environment checks unless the declared test environment provides the CLI.",
+                  "rationale": "Read the applicable agent-guidance and testing standards. Existing violation encountered: internal/turn/research_agent.go:534 embeds a delegation instruction in Go and injects it at line 550. Report it for the operator to decide separately; do not move it or expand this story. This review ran no builds, tests or live agents."
+                },
+                {
+                  "area": "Operator documentation and assumptions",
+                  "decision": "Document settings.denyrules and additive lf_deny with a copyable local-team example, empty defaults, exact supported native forms, path anchoring, Codex refusal and actionable error recovery. Assume rules describe the documented native tool boundaries, as Research settled. Operators edit their own settings and cloned teams; no automatic installation changes.",
+                  "rationale": "This keeps the shared interface useful before Codex support lands. There is no frontend or service/database layer to design. Documentation-backed native matching is sufficient to shape this architecture; actual installed-version enforcement remains evidence to obtain before claiming delivery."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Operator deny catalogue",
+                  "definition": "settings.denyrules is an optional map of case-sensitive names matching [A-Za-z][A-Za-z0-9_-]* to objects containing a required nonempty deny string list. Absent or empty map means no groups.",
+                  "constraints": "Retain strict YAML unknown-field and duplicate-key rejection. Reject blank entries, controls, malformed/unbalanced patterns, nested groups, bare scripts and unknown tools. Grammar is Bash(pattern), Read(path), Edit(path), Agent, Agent(name); patterns/names are nonempty. Syntax validation does not certify runtime support."
+                },
+                {
+                  "entity": "Graph/node references",
+                  "definition": "lf_deny is comma-separated group names; trim surrounding whitespace, accept omitted/empty/whitespace-only values, reject empty items inside nonempty lists and raw rules.",
+                  "constraints": "Ordered union: graph names first, then node names; first occurrence wins. Deduplicate exact entries without rewriting their meaning. Empty node selection cannot remove graph defaults. Keep reference provenance for diagnostics."
+                },
+                {
+                  "entity": "Resolved attempt policy",
+                  "definition": "An immutable request value contains selected group names and ordered parsed entries with source group, original entry and graph/node attribution. GraphInvocation remains attempt identity, not the policy store.",
+                  "constraints": "No database table or migration. Clone slices/maps at boundaries; distinguish no selection from resolution failure. Compile only after worktree and provider are known. Policy artifacts are private to the attempt and outside all agent-writable roots, including submission roots and shared caches."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Configuration to graph dispatch",
+                  "contract": "Add catalogue types/defaults/validation through internal/config. Carry graph defaults explicitly from the pinned Profile through ActivityRequest alongside node Attrs. A common resolver serves configured admission and per-attempt preparation; avoid rereading mutable team DOT during an admitted attempt.",
+                  "rationale": "Current ActivityRequest carries node attributes only. Keeping defaults separate prevents loss during dispatch and makes graph-first union explicit."
+                },
+                {
+                  "element": "Agent request handoff",
+                  "contract": "Attach the frozen resolved policy to internal/agent.Request before runner.Run. Use the common AgentActivity path for graph agent work, including Bug/Implement/Spike; thread policy through Research and Plan preparation and audit Validate reviewer/reporter launch paths. Special activities inherit graph defaults only when launching an agent; reject node selections on non-agent activities.",
+                  "rationale": "The older Research five-launch-site list is historical: bug_graph_runtime.go no longer exists. Current common activity execution and direct Validate request construction must both preserve policy. No workflow-name switch should decide enforcement."
+                },
+                {
+                  "element": "Claude compiler and settings writer",
+                  "contract": "Compile Bash native patterns unchanged when supported; Agent has only all-agent or named-agent meaning, never parameter selectors. Resolve relative file patterns against the launch worktree and emit explicit native anchors, preserving supported glob meaning. Accept native absolute // and home ~/ forms; refuse ambiguous source-relative anchors, unsupported parameter forms or patterns whose meaning cannot be preserved. Append compiled denies and shared denies to the original valid deny list without changing allow/ask or widening tool access.",
+                  "rationale": "This defines a conservative capability boundary rather than passing syntactically valid but ignored rules through to Claude. Separate selected-rule compilation from existing shared-rule generation so native provider support can evolve without changing group syntax."
+                },
+                {
+                  "element": "Launch and failure boundary",
+                  "contract": "Complete resolution, provider compilation, protected atomic settings write and request validation before process start. Use existing context cancellation and cleanup. New/resumed attempts build fresh policy artifacts; retries within one attempt reuse its snapshot. Surface errors through existing activity diagnostics without success fallback or a prompt asking the agent to obey.",
+                  "rationale": "Enforcement is a host/provider responsibility. Fresh policy files avoid stale appended restrictions; immutable inputs prevent concurrent attempts from overwriting each other or a resume fallback dropping restrictions."
+                }
+              ]
+            }
+          },
+          "expected_revision": "100c3f16dc05ec02d4480baae6b4a6541710fa837783ce7ae91a7e58abdd2e67",
+          "changed_sections": [
+            "architecture",
+            "guidance"
+          ]
+        }
+      }
+    }
+  }
+}
