@@ -137,15 +137,19 @@ func TestClaimGraphOwnerReply_PredatingCommentAnswersQuestion(t *testing.T) {
 	}
 }
 
-// Before the question's publication is completed there is no published
-// question to predate: the generic invariant still applies.
-func TestClaimGraphOwnerReply_IncompleteQuestionKeepsGenericInvariant(t *testing.T) {
+// Before the question's publication is completed the reply waits for it: it is
+// held, not claimed and not a broken invariant (#1514).
+func TestClaimGraphOwnerReply_IncompleteQuestionHoldsReply(t *testing.T) {
 	db, reply := predatingReplyFixture(t, false)
 	for _, id := range []int64{100, 102} {
 		in := reply
 		in.CommentID = id
-		if _, err := db.ClaimGraphOwnerReply(t.Context(), in); !errors.Is(err, ErrGraphInvariant) {
-			t.Fatalf("comment %d with incomplete delivery: error=%v, want only ErrGraphInvariant", id, err)
+		if _, err := db.ClaimGraphOwnerReply(t.Context(), in); !errors.Is(err, ErrGraphOwnerWait) || errors.Is(err, ErrGraphInvariant) {
+			t.Fatalf("comment %d with incomplete delivery: error=%v, want the reply held", id, err)
+		}
+		wait, err := db.GetGraphOwnerWait(t.Context(), in.InstanceID)
+		if err != nil || wait.State != "waiting" || wait.ReplyID != 0 {
+			t.Fatalf("comment %d changed the open wait: %+v %v", id, wait, err)
 		}
 	}
 }
@@ -238,8 +242,11 @@ func TestValidateResolverRunlessExceptionIsNarrow(t *testing.T) {
 
 func TestValidateResolverQuestionMustBePublished(t *testing.T) {
 	db, reply := ownerReplyFixture(t, false, "validate", "owner_resolve", "owner_ask", "question")
-	if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); !errors.Is(err, ErrGraphInvariant) {
+	if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); !errors.Is(err, ErrGraphOwnerWait) {
 		t.Fatalf("unpublished wait admitted: %v", err)
+	}
+	if wait, err := db.GetGraphOwnerWait(t.Context(), reply.InstanceID); err != nil || wait.State != "waiting" || wait.ReplyID != 0 {
+		t.Fatalf("unpublished wait claimed: %+v %v", wait, err)
 	}
 }
 
