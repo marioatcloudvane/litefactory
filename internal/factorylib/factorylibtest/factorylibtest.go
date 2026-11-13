@@ -16,6 +16,18 @@ import (
 
 // SourceDir is the absolute path of teams/source/factory in this checkout.
 func SourceDir() string {
+	// Trimmed builds report module paths from runtime.Caller, so prefer the
+	// checkout containing the test process's working directory.
+	if wd, err := os.Getwd(); err == nil {
+		for dir := wd; ; dir = filepath.Dir(dir) {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				return filepath.Join(dir, "teams", "source", "factory")
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "teams", "source", "factory")
 }
