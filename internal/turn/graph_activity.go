@@ -13,11 +13,13 @@ import (
 // ActivityRequest is one bounded dispatch. Attrs belongs to the handler;
 // ResumeRef is runtime-only and conveys no implemented session-resume behavior.
 type ActivityRequest struct {
-	Workflow                         agent.Workflow
-	Team                             string
-	Mode                             agent.Mode
-	Node                             string
-	Attrs                            map[string]string
+	Workflow agent.Workflow
+	Team     string
+	Mode     agent.Mode
+	Node     string
+	Attrs    map[string]string
+	// GraphDeny carries defaults from the pinned graph, independently of node attrs.
+	GraphDeny                        string
 	InstanceID, NodeAttemptID, RunID int64
 	Recovery                         bool
 	ResumeRef                        string

@@ -139,7 +139,13 @@ func walkStrings(v reflect.Value, path string, visit func(key, value string)) {
 			return strings.Compare(fmt.Sprint(a), fmt.Sprint(b))
 		})
 		for _, key := range keys {
-			walkStrings(v.MapIndex(key), fmt.Sprintf("%s[%v]", path, key), visit)
+			keyName := fmt.Sprint(key)
+			if path == "settings.denyrules" {
+				if _, secret := ClassifySecret(keyName); secret {
+					keyName = "redacted group name"
+				}
+			}
+			walkStrings(v.MapIndex(key), fmt.Sprintf("%s[%s]", path, keyName), visit)
 		}
 	default:
 		// Numbers, booleans and the rest cannot carry a credential.

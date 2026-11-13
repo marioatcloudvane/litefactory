@@ -64,7 +64,7 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
 	}
-	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: agentOutcomes(handler.Policy), Attributes: graphexec.AgentAttributes()}); err != nil {
+	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Agent: true, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: agentOutcomes(handler.Policy), Attributes: graphexec.AgentAttributes()}); err != nil {
 		return err
 	}
 	return activities.Register(ResearchAgentAction, handler)
@@ -250,6 +250,10 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		return out, errors.New("research invocation lacks matching application-result authority")
 	}
 	req := invocation.Request
+	req.DenyPolicy, err = resolveAttemptDeny(opts, a.GraphDeny, a.Attrs["lf_deny"], a.Node)
+	if err != nil {
+		return out, err
+	}
 	requestWorkflow, err := agent.ResolveWorkflow(req.Workflow, agent.Mode(req.Mode))
 	if err != nil || requestWorkflow != workflow {
 		return out, errors.New("agent request workflow binding mismatch")
@@ -301,6 +305,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		cold := *invocation.ColdRequest
 		cold.Invocation, cold.Graph = req.Invocation, req.Graph
 		cold.StackProfile = req.StackProfile
+		cold.DenyPolicy = req.DenyPolicy.Clone()
 		if stackEngineeringRequest(req, a.Attrs) {
 			guidance, err := stackEngineeringGuidance(req)
 			if err != nil {

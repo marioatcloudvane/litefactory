@@ -75,6 +75,22 @@ type runSandbox struct {
 // It lives in the run artefact directory, which the sandbox does not let the
 // agent write, so a run cannot loosen its own sandbox.
 func (r *Runner) prepareSandbox(req agent.Request, logPath string) (runSandbox, error) {
+	document, env, cleanup, err := r.sandboxDocument(req)
+	if err != nil {
+		return runSandbox{}, err
+	}
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return runSandbox{}, errors.Join(err, cleanup())
+	}
+	settingsPath := logPath + ".settings.json"
+	if err := writeFileAtomic(settingsPath, append(encoded, '\n'), settingsFileMode); err != nil {
+		return runSandbox{}, errors.Join(err, cleanup())
+	}
+	return runSandbox{settingsPath: settingsPath, env: env, cleanup: cleanup}, nil
+}
+
+func (r *Runner) sandboxDocument(req agent.Request) (map[string]any, []string, func() error, error) {
 	readOnly := toolSurface(req).ReadOnly
 	worktree := req.WorktreePath
 	cacheRoot := r.paths.ReviewCacheDir()
@@ -82,7 +98,7 @@ func (r *Runner) prepareSandbox(req agent.Request, logPath string) (runSandbox, 
 	switch {
 	case r.goBuildCaches.Main != "":
 		if err := r.goBuildCaches.Revalidate(worktree); err != nil {
-			return runSandbox{}, err
+			return nil, nil, nil, err
 		}
 		goCache = r.goBuildCaches.Main
 		if readOnly {
@@ -97,36 +113,45 @@ func (r *Runner) prepareSandbox(req agent.Request, logPath string) (runSandbox, 
 			continue
 		}
 		if err := os.MkdirAll(dir, runArtefactDirMode); err != nil {
-			return runSandbox{}, fmt.Errorf("prepare sandbox cache: %w", err)
+			return nil, nil, nil, fmt.Errorf("prepare sandbox cache: %w", err)
 		}
 	}
 	scratch, err := os.MkdirTemp(tmpRoot, "run-")
 	if err != nil {
-		return runSandbox{}, fmt.Errorf("prepare sandbox scratch: %w", err)
+		return nil, nil, nil, fmt.Errorf("prepare sandbox scratch: %w", err)
 	}
 	cleanup := func() error { return os.RemoveAll(scratch) }
 
 	// #nosec G304 -- settingsPath is validated operator-owned configuration.
 	raw, err := os.ReadFile(r.settingsPath)
 	if err != nil {
-		return runSandbox{}, errors.Join(fmt.Errorf("read claude settings: %w", err), cleanup())
+		return nil, nil, nil, errors.Join(fmt.Errorf("read claude settings: %w", err), cleanup())
 	}
 	document := map[string]any{}
 	if err := json.Unmarshal(raw, &document); err != nil {
-		return runSandbox{}, errors.Join(fmt.Errorf("decode claude settings %s: %w", r.settingsPath, err), cleanup())
+		return nil, nil, nil, errors.Join(fmt.Errorf("decode claude settings %s: %w", r.settingsPath, err), cleanup())
 	}
+	if req.DenyPolicy.Selected() {
+		document, err = decodeDenySettings(raw)
+		if err != nil {
+			return nil, nil, nil, errors.Join(err, cleanup())
+		}
+	}
+	originalSandbox := document["sandbox"]
+	var generated map[string]any
 	if readOnly {
-		document["sandbox"] = readOnlyShellSandboxSettings(worktree, r.home, scratch, goCache, r.deniedReadPaths())
+		generated = readOnlyShellSandboxSettings(worktree, r.home, scratch, goCache, r.deniedReadPaths())
 	} else {
-		document["sandbox"] = r.writableSandboxSettings(worktree, scratch, goCache, req.SubmissionRoot)
+		generated = r.writableSandboxSettings(worktree, scratch, goCache, req.SubmissionRoot)
 	}
-	encoded, err := json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		return runSandbox{}, errors.Join(err, cleanup())
-	}
-	settingsPath := logPath + ".settings.json"
-	if err := writeFileAtomic(settingsPath, append(encoded, '\n'), settingsFileMode); err != nil {
-		return runSandbox{}, errors.Join(err, cleanup())
+	document["sandbox"] = generated
+	if req.DenyPolicy.Selected() {
+		if err := protectSelectedSandbox(generated, originalSandbox); err != nil {
+			return nil, nil, nil, errors.Join(err, cleanup())
+		}
+		if err := preserveSandboxLimits(generated, originalSandbox); err != nil {
+			return nil, nil, nil, errors.Join(err, cleanup())
+		}
 	}
 	env := []string{
 		"TMPDIR=" + scratch,
@@ -139,7 +164,7 @@ func (r *Runner) prepareSandbox(req agent.Request, logPath string) (runSandbox, 
 	if goCache != "" {
 		env = append(env, "GOCACHE="+goCache)
 	}
-	return runSandbox{settingsPath: settingsPath, env: env, cleanup: cleanup}, nil
+	return document, env, cleanup, nil
 }
 
 // readOnlyShellSandboxSettings is the sandbox stanza of a read-only run. No

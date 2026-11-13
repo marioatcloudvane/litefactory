@@ -28,15 +28,15 @@ func moduleRoot(t *testing.T) string {
 
 // TestValidationHasNoThirdPartyImports enforces a review invariant that would
 // otherwise rot: everything in this package except the YAML decode itself is
-// stdlib-only.
+// stdlib-only, apart from the shared stdlib-only deny policy leaf.
 //
 // The reason is blast radius. Validation is what stands between a hand-edited
 // file and the daemon starting, and the secret scan is what keeps credentials
 // out of config.yaml. Neither should be able to change behaviour because a
 // dependency was upgraded.
 func TestValidationHasNoThirdPartyImports(t *testing.T) {
-	// The one file allowed to import a third-party package, and the only
-	// package it may import.
+	// The YAML decoder is the only external dependency. The shared policy
+	// leaf has no external dependencies and owns parsing for all consumers.
 	const decodeFile = "config.go"
 	const decodePackage = "gopkg.in/yaml.v3"
 
@@ -59,6 +59,9 @@ func TestValidationHasNoThirdPartyImports(t *testing.T) {
 			path, err := strconv.Unquote(spec.Path.Value)
 			if err != nil {
 				t.Fatalf("%s: unquote import %s: %v", name, spec.Path.Value, err)
+			}
+			if path == "github.com/cloudvane/litefactory/internal/denypolicy" {
+				continue
 			}
 			if !isThirdParty(path) {
 				continue

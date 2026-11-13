@@ -18,6 +18,8 @@ type AttributeSpec = graph.AttributeSpec
 
 // ActionSpec defines membership and outcomes, never executable attribute text.
 type ActionSpec struct {
+	// Agent marks an action implemented by the registered agent activity.
+	Agent      bool
 	Name       string
 	Mode       agent.Mode
 	Workflow   agent.Workflow

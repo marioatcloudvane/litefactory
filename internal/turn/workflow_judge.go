@@ -114,6 +114,10 @@ func (h JudgeActivity) Execute(ctx context.Context, opts Options, req ActivityRe
 	if input.TaskProvider == "" {
 		input.TaskProvider = config.Kind(input.PinnedSource.Provider)
 	}
+	input.DenyPolicy, err = resolveAttemptDeny(opts, h.Profile.Attrs[graphexec.DenyAttribute], "", node.Name)
+	if err != nil {
+		return ActivityResult{}, err
+	}
 	_, err = h.Service.Execute(ctx, input)
 	if err != nil {
 		if errors.Is(err, ErrJudgeSettings) || errors.Is(err, store.ErrJudgeSourceUnavailable) {

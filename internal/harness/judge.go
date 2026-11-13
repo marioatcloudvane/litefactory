@@ -17,7 +17,7 @@ import (
 // RunJudge uses the scoped broker transport with only the read-only native
 // tools Read, Grep and Glob, confined to the pinned checkout and context files.
 // This separate gate neither opens nor alters diagnosis isolation.
-func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (agent.JudgeRunResult, error) {
+func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ agent.JudgeRunResult, runErr error) {
 	if err := request.Validate(); err != nil {
 		return agent.JudgeRunResult{}, err
 	}
@@ -26,6 +26,19 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (agen
 	}
 	if err := ctx.Err(); err != nil {
 		return agent.JudgeRunResult{}, err
+	}
+	denies, err := claudeDenyRules(request.DenyPolicy, request.Invocation.WorkingDirectory)
+	if err != nil {
+		return agent.JudgeRunResult{}, err
+	}
+	settingsPath := ""
+	if request.DenyPolicy.Selected() {
+		prepared, err := r.prepareJudgeDenySettings(ctx, request.Invocation.WorkingDirectory, denies)
+		if err != nil {
+			return agent.JudgeRunResult{}, err
+		}
+		defer func() { runErr = errors.Join(runErr, prepared.cleanup()) }()
+		settingsPath = prepared.settingsPath
 	}
 	if request.Thinking != "" {
 		// This bounded local help request cannot invoke a model or inherit model
@@ -46,7 +59,7 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (agen
 		}
 	}
 	request.Invocation.Thinking = request.Thinking
-	result, err := r.runScopedDoctorTransport(ctx, request.Invocation, "judge")
+	result, err := r.runScopedDoctorTransport(ctx, request.Invocation, "judge", settingsPath)
 	if err == nil && request.Thinking != "" && result.ObservedModel != "" {
 		if capabilityErr := config.ValidateThinking(config.KindClaude, result.ObservedModel, request.Thinking); capabilityErr != nil {
 			return result, fmt.Errorf("observed judge model cannot verify requested effort: %w", capabilityErr)

@@ -97,6 +97,8 @@ remote_connector:
 #   log_analysis:
 #     upstream: github:marioatcloudvane/litefactory
 settings:
+  # Reusable optional deny groups selected by local graph lf_deny attributes.
+  denyrules: {}
   # Default worker allowance; explicit node lf_budget minutes take precedence.
   worker_timeout_seconds: %d # valid range: 60..86400
   # Absolute path of a teams/source folder; "team install" uses it when
