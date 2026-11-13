@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/denypolicy"
 )
 
 // JudgeRequest grants read-only access to WorkingDirectory (a detached checkout
@@ -13,6 +14,8 @@ import (
 // plus advisory result delivery. It carries no workflow session, source writer
 // or approval authority.
 type JudgeRequest struct {
+	// DenyPolicy is the frozen selected graph policy; non-graph requests omit it.
+	DenyPolicy *denypolicy.Policy
 	Invocation DoctorRequest
 	Thinking   config.Thinking
 }

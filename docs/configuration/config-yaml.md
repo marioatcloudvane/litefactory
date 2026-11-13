@@ -6,7 +6,7 @@ This page lists every key litefactory reads from `config.yaml`. The file lives a
 
 ## How the file is read
 
-- **Restart needed: yes, for every key.** The daemon reads the file once, when it starts. There is no hot reload. After an edit, stop and start the daemon (see [running the daemon](../operations/running-the-daemon.md)). Other commands (`repo add`, `doctor`, and so on) read the file each time you run them.
+- **Restart needed, except selected deny groups.** The daemon reads its startup settings once. After an edit, stop and start the daemon (see [running the daemon](../operations/running-the-daemon.md)). Selected graph deny groups are resolved from the current file at admission and once per new or resumed agent attempt; other startup settings stay unchanged. Other commands (`repo add`, `doctor`, and so on) read the file each time you run them.
 - **Unknown keys are refused.** A misspelled or removed key stops the load with a message that names it. A file with more than one YAML document is refused too.
 - **Missing keys are fine.** Each key has a default. A key you write is checked, so a written `0` is not replaced by the default; it is either accepted or refused by the range check.
 - **All problems are reported at once.** A bad file lists every failure, so you can fix them in one pass.
@@ -112,6 +112,7 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 
 | Key | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
+| `settings.denyrules` | map | empty | case-sensitive names matching `[A-Za-z][A-Za-z0-9_-]*`, each with a nonempty `deny` string list | Reusable restrictions selected by graph or agent-node `lf_deny`. See [named deny groups](permissions.md#named-deny-groups) and the [local team example](../cli/teams.md#select-deny-groups-in-a-local-team). |
 | `settings.team_source` | string | `""` | the absolute path of a `teams/source` folder, or empty | The folder `litefactory team install` builds teams from when `--source` is left out. Empty means `--source` is required. An old catalogue URL still loads, but installing from it is refused with a message naming the folder form. See [teams](../cli/teams.md). |
 | `settings.worker_timeout_seconds` | integer | `1800` | 60 to 86400 | Default allowance for one worker attempt, in exact seconds. An explicit node `lf_budget` of 1–1440 whole minutes takes precedence. |
 | `settings.poll_interval_minutes` | integer | `60` | 1 to 180 | How often the daemon lists GitHub when no webhook woke it sooner. Webhooks are the fast path; this is the safety net. The old `poll_interval_seconds` is refused and is not converted. |

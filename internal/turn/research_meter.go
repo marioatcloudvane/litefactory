@@ -38,6 +38,7 @@ func runResearchMetered(ctx context.Context, db *store.DB, kind agent.Kind, req 
 		}
 		return err
 	}}
+	req.DenyPolicy = req.DenyPolicy.Clone()
 	result, runErr := runner.Run(ctx, req)
 	if stopped != nil {
 		stopped()

@@ -32,6 +32,48 @@ litefactory team clone NAME VERSION NEW-NAME NEW-VERSION
 
 `team clone` copies an installed team into an editable local team named `NEW-NAME` at `NEW-VERSION`. It prints the folder to edit. Local teams live in the `local` source; `team install` refuses a name and version that already exist there. Use `--source local` to name them in other commands.
 
+## Select deny groups in a local team
+
+Clone an installed team and link the editable copy, substituting your registered clone path:
+
+```sh
+litefactory team clone go-development 1.0.0 restricted-local 1.0.0
+litefactory team link restricted-local 1.0.0 --source local --repo /absolute/path/to/clone
+```
+
+In your existing operator `config.yaml`, merge this fragment under `settings`:
+
+```yaml
+settings:
+  denyrules:
+    full_checks:
+      deny:
+        - 'Bash(make check:*)'
+        - 'Bash(scripts/lf-check.sh:*)'
+    private_files:
+      deny:
+        - 'Read(secrets/**)'
+        - 'Edit(generated/**)'
+    no_reviewer:
+      deny:
+        - 'Agent(reviewer)'
+```
+
+These are example commands and paths for your project; they need not exist in a shipped team. Edit the applicable workflow DOT in the folder printed by `team clone`. Add a graph attribute and attributes to existing `lf_agent` nodes, retaining their roles, outcomes and edges:
+
+```dot
+// Inside the existing digraph:
+lf_deny="full_checks";
+worker [lf_deny="private_files,no_reviewer,full_checks"];
+other_worker [lf_deny=""];
+```
+
+Use your actual agent node names in place of `worker` and `other_worker`. The first node gets `full_checks`, `private_files`, then `no_reviewer`; the repeated group is removed. The empty node still gets `full_checks`. Selections contain group names only. Never put `lf_deny` on a terminal, control or judge node, even with an empty value. Shipped teams remain unchanged and contain no group references.
+
+Select Claude for the run. Codex with selected groups currently refuses before launch; its support follows in the dependent story. See [named deny groups](../configuration/permissions.md#named-deny-groups) for the supported native forms, worktree and absolute path anchors, matching limits and refusal recovery. New and resumed selected attempts read current operator settings; active attempts retain their rules through retries and cold fallback. Other configuration changes still need a daemon restart.
+
+Try the documented denied and unrelated allowed actions with your installed Claude, including a permitted native descendant and resume. This is a live owner check; automated launch tests do not establish native enforcement. Correct an unknown name, malformed rule or unsupported runtime selection using the launch diagnostic, then retry.
+
 ## Link a team to a repository
 
 ```sh

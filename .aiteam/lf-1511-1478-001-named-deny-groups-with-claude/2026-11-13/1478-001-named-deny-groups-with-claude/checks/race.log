@@ -1,0 +1,28 @@
+ok  	github.com/cloudvane/litefactory/internal/denypolicy	1.522s
+--- FAIL: TestDefaultFileMatchesDefaults (0.05s)
+    template_test.go:50: the default config file has drifted from Defaults() (-want +got):
+          config.Config{
+          	... // 2 identical fields
+          	Alerts: {CI: {Repository: "marioatcloudvane/litefactory", Branch: "main", Workflow: ".github/workflows/check.yml"}, Enabled: true, MentionOwner: "critical", CooldownMinutes: 60, ...},
+          	Chat:   nil,
+          	Settings: config.Settings{
+        - 		DenyRules:            nil,
+        + 		DenyRules:            denypolicy.Catalogue{},
+          		WorkerTimeoutSeconds: 1800,
+          		TeamSource:           "",
+          		... // 26 identical fields
+          	},
+          	ValidateMode: {},
+          	Webhook:      {Listen: "127.0.0.1:8787"},
+          	... // 10 identical fields
+          }
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/config	7.841s
+ok  	github.com/cloudvane/litefactory/internal/agent	3.362s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	1.657s
+ok  	github.com/cloudvane/litefactory/internal/harness	93.556s
+ok  	github.com/cloudvane/litefactory/internal/codex	145.550s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	8.001s
+ok  	github.com/cloudvane/litefactory/internal/teampackage	6.176s
+ok  	github.com/cloudvane/litefactory/internal/teambuild	41.064s
+FAIL

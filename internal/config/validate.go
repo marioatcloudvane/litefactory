@@ -113,6 +113,7 @@ var (
 // errors.Is(err, ErrLiteralSecret) — must exit 3 (AC-0.9).
 func (c *Config) Validate() error {
 	var errs []error
+	errs = append(errs, validateDenyCatalogue(c.Settings.DenyRules))
 	errs = append(errs, c.validateJudge()...)
 	errs = append(errs, c.Standards.validate()...)
 	if _, err := NormalizeTeamSource(c.Settings.TeamSource); c.Settings.TeamSource != "" && err != nil {

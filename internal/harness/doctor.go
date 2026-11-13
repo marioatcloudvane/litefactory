@@ -32,7 +32,7 @@ func (r *Runner) DoctorIsolation(context.Context) (string, error) {
 	return doctorIsolation, nil
 }
 
-func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.DoctorRequest, operation string) (_ agent.DoctorRunResult, err error) {
+func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.DoctorRequest, operation string, selectedSettings ...string) (_ agent.DoctorRunResult, err error) {
 
 	if err = validateScopedDoctorRequest(request, operation); err != nil {
 		return agent.DoctorRunResult{}, err
@@ -72,6 +72,9 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	args, err := scopedDoctorArguments(request, mcpPath, configDir, operation)
 	if err != nil {
 		return agent.DoctorRunResult{}, err
+	}
+	if len(selectedSettings) > 0 && selectedSettings[0] != "" {
+		args = append(args, "--settings", selectedSettings[0])
 	}
 	args = append(args, r.thinkingArgs(ctx)...)
 	registration := map[string]any{"mcpServers": map[string]any{"litefactory": map[string]any{"type": "stdio", "command": request.MCPLaunch.Executable(), "args": request.MCPLaunch.Arguments(), "env": map[string]string{}}}}

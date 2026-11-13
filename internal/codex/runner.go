@@ -257,6 +257,9 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 // Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunResult, runErr error) {
 	defer func() { r.providerObserver.Observe(ctx, req, result, runErr) }()
+	if err := selectedDenyRefusal(req.DenyPolicy); err != nil {
+		return nil, err
+	}
 	if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
 		return nil, err
 	}

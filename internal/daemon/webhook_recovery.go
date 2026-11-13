@@ -27,6 +27,10 @@ const hookCheckInterval = 5 * time.Minute
 // Intents and accepted-delivery GUIDs keep a re-read delivery from being
 // requested twice.
 const hookCheckOverlap = time.Minute
+
+// hookLookupRetry is how long a subscription whose hook could not be found
+// waits before its hooks are listed again (#1516).
+const hookLookupRetry = time.Hour
 const hookRecoveryCapacity = 1000
 const hookRecoveryAttempts = 3
 const hookRecoveryWork = 20
@@ -56,6 +60,9 @@ type hookRecoveryState struct {
 	passServer, checkedThrough time.Time
 	// unreadable says the delivery log could not be read on the last check.
 	unreadable bool
+	// hookMissing says the subscription's hook could not be found by its
+	// callback URL; it is warned once.
+	hookMissing bool
 }
 
 type hookIntent struct {
@@ -189,8 +196,8 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		state = newHookRecovery(sub, hook)
 		state.version = version.ID
 		d.hookRecovery[q.repo.ID] = state
-		if hook <= 0 || sub.ID == "" {
-			q.log.InfoContext(ctx, "webhook recovery off: no recorded hook; webhooks and ordinary polling cover intake")
+		if sub.ID == "" {
+			q.log.InfoContext(ctx, "webhook recovery off: no webhook subscription; ordinary polling covers intake")
 		}
 	}
 	if now.Before(state.next) {
@@ -209,10 +216,10 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		q.log.InfoContext(ctx, "webhook recovery polling fallback", slog.Int64("hook", hook), slog.String("reason", reason))
 		return nil
 	}
-	// Without a recorded hook there are no deliveries to replay. Polling the
+	// Without a subscription there are no deliveries to replay. Polling the
 	// source every minute instead costs API budget the webhook already saves;
 	// ordinary polling stays the backstop for a lost delivery.
-	if hook <= 0 || sub.ID == "" {
+	if sub.ID == "" {
 		return nil
 	}
 	clients, err := d.connections.Clients(ctx, version, 0)
@@ -233,6 +240,35 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 	if identity.Provider != version.Provider || identity.Origin != version.Origin || identity.RemoteID != sub.ContainerID || (version.RemoteID != "" && identity.RemoteID != version.RemoteID) {
 		delete(d.hookRecovery, q.repo.ID)
 		return store.ErrTicketIdentityConflict
+	}
+	if hook <= 0 {
+		// An existing subscription may carry no recorded hook ID (#1516): find
+		// the repository's hook by its callback URL and record it.
+		found, reason, e := d.findSubscriptionHook(ctx, q, clients.Code, sub)
+		if e != nil {
+			return e
+		}
+		if found <= 0 {
+			if !state.hookMissing {
+				q.log.WarnContext(ctx, "webhook recovery off: the repository's webhook could not be found; failed "+
+					"deliveries are not redelivered and a lost webhook waits for the hourly listing",
+					slog.String("subscription", sub.ID), slog.String("reason", reason))
+			}
+			state.hookMissing = true
+			state.next = now.Add(hookLookupRetry)
+			return nil
+		}
+		if err := d.db.AdoptSubscriptionRemoteHook(ctx, sub.ID, sub.Revision, "", strconv.FormatInt(found, 10)); err != nil {
+			return err
+		}
+		q.log.InfoContext(ctx, "webhook recovery found the repository's webhook by its callback URL and recorded it",
+			slog.String("subscription", sub.ID), slog.Int64("hook", found))
+		hook = found
+		lastCheck, since := state.lastCheck, state.since
+		state = newHookRecovery(sub, hook)
+		state.version = version.ID
+		state.lastCheck, state.since = lastCheck, since
+		d.hookRecovery[q.repo.ID] = state
 	}
 	if state.groups == nil {
 		page, e := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "hook-history", 0), 1, func(ctx context.Context) (github.HookDeliveryPage, error) {
@@ -343,6 +379,38 @@ func (d *Daemon) recoverHookDeliveries(ctx context.Context, q *repoQueue, now ti
 		}
 	}
 	return nil
+}
+
+// findSubscriptionHook looks up the repository's one hook whose URL is the
+// subscription's callback URL. A hook that is not found, or not unique, comes
+// back as 0 with the reason; only a deferral, quota or cancellation is an error.
+func (d *Daemon) findSubscriptionHook(ctx context.Context, q *repoQueue, code *github.Client, sub store.TicketSubscription) (int64, string, error) {
+	if sub.CallbackURL == "" {
+		return 0, "the subscription has no callback URL", nil
+	}
+	hooks, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "hook-list", 0), 1, func(ctx context.Context) ([]github.Hook, error) {
+		return code.ListHooks(ctx, q.forgeRepo)
+	})
+	if err != nil {
+		if errors.Is(err, ErrDiscoveryDeferred) || providerRateLimited(err) || ctx.Err() != nil {
+			return 0, "", err
+		}
+		return 0, "the repository's webhooks cannot be read: " + err.Error(), nil
+	}
+	var matches []int64
+	for _, h := range hooks {
+		if h.ID > 0 && h.URL == sub.CallbackURL {
+			matches = append(matches, h.ID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return 0, "no webhook on the repository points at the subscription's callback URL", nil
+	case 1:
+		return matches[0], "", nil
+	default:
+		return 0, fmt.Sprintf("%d webhooks on the repository point at the subscription's callback URL", len(matches)), nil
+	}
 }
 
 func (s *hookRecoveryState) decision(group []github.HookDelivery, now time.Time) (github.HookDelivery, bool, string) {

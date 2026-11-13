@@ -40,6 +40,9 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	if err == nil {
 		definition, restoreErr := restoreWorkflow(ctx, o.DB, saved, workflow, specs)
 		if restoreErr == nil {
+			if err := admitDenySelections(o, definition.Profile); err != nil {
+				return fail(err)
+			}
 			return definition, nil
 		}
 		if !supersedesObsoleteCapture(req, saved, workflow, restoreErr) {
@@ -85,6 +88,9 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	verified.Origin = definition.Origin
 	verified.StackFresh = definition.StackProfile != nil
 	definition = verified
+	if err := admitDenySelections(o, definition.Profile); err != nil {
+		return fail(err)
+	}
 	total := len(definition.Origin.TeamConfig)
 	for _, raw := range definition.Files {
 		total += len(raw)

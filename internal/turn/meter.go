@@ -20,6 +20,7 @@ func runMetered(ctx context.Context, prep *preparation, logger *slog.Logger) (*a
 // runMeteredWith meters one actual invocation of a request the caller has
 // already bound to its result route.
 func runMeteredWith(ctx context.Context, prep *preparation, logger *slog.Logger, req agent.Request, invoke func(context.Context, agent.Request) (*agent.RunResult, error)) (*agent.RunResult, error) {
+	req.DenyPolicy = req.DenyPolicy.Clone()
 	if prep.meterDB == nil {
 		return invoke(ctx, req)
 	}

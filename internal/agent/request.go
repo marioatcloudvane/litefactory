@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/denypolicy"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -51,6 +52,9 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// DenyPolicy is the resolved restriction snapshot for this graph attempt.
+	// Providers receive an independent clone for each process launch.
+	DenyPolicy *denypolicy.Policy
 	// Model and Thinking are resolved native invocation overrides.
 	Model    string
 	Thinking config.Thinking
