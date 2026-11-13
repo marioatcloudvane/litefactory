@@ -221,3 +221,18 @@ func (c *UsageCollector) Finish() *agent.UsageCoverage { return c.finish() }
 
 // PrepareRollouts captures native rollout byte boundaries before launch.
 func (c *UsageCollector) PrepareRollouts(environ []string) { c.prepareRollouts(environ) }
+
+// PrepareRolloutsFromRoot captures byte boundaries from a host-validated canonical
+// sessions directory. The reader independently refuses symlinked components;
+// callers must never supply a private configuration home's sessions symlink.
+func (c *UsageCollector) PrepareRolloutsFromRoot(root string) {
+	if c == nil {
+		return
+	}
+	source, err := canonicalRolloutSource(root)
+	if err != nil {
+		c.diagnostic("usage_source_unavailable")
+		return
+	}
+	c.prepareRolloutSource(source)
+}

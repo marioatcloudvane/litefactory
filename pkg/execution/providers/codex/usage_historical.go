@@ -30,7 +30,7 @@ type HistoricalUsage struct {
 	Observations []agent.UsageObservation
 	Diagnostics  []string
 	sources      []historicalSource
-	home         string
+	source       rolloutSource
 }
 type historicalSource struct {
 	path, digest string
@@ -43,7 +43,21 @@ func CollectHistoricalUsage(ctx context.Context, home, rootID string, window His
 	if !filepath.IsAbs(home) || !validUsageID(rootID) || window.From.IsZero() || !window.From.Before(window.To) {
 		return result, errors.New("invalid historical usage scope")
 	}
-	result.home = home
+	return collectHistoricalUsage(ctx, rolloutSource{home: home, directory: ".codex/sessions"}, rootID, window)
+}
+
+// CollectHistoricalUsageFromRoot reads the real canonical sessions directory,
+// independently of the configuration home used for a selected launch.
+func CollectHistoricalUsageFromRoot(ctx context.Context, root, rootID string, window HistoricalWindow) (HistoricalUsage, error) {
+	source, err := canonicalRolloutSource(root)
+	if err != nil || !validUsageID(rootID) || window.From.IsZero() || !window.From.Before(window.To) {
+		return HistoricalUsage{}, errors.New("invalid historical usage scope")
+	}
+	return collectHistoricalUsage(ctx, source, rootID, window)
+}
+
+func collectHistoricalUsage(ctx context.Context, source rolloutSource, rootID string, window HistoricalWindow) (result HistoricalUsage, err error) {
+	result.source = source
 	capture := agent.UsageCapture{Sink: func(_ context.Context, e agent.UsageEvent) error {
 		if e.Invocation != nil {
 			result.Invocations = append(result.Invocations, *e.Invocation)
@@ -54,7 +68,7 @@ func CollectHistoricalUsage(ctx context.Context, home, rootID string, window His
 		return nil
 	}}
 	c := newUsageCaptureCollector(ctx, &capture)
-	c.prepareRollouts([]string{"HOME=" + home})
+	c.prepareRolloutSource(source)
 	if c.rollouts == nil || c.rollouts.disabled || c.rollouts.root == nil {
 		return result, errors.New("historical source inventory unavailable or incomplete")
 	}
@@ -102,13 +116,13 @@ func CollectHistoricalUsage(ctx context.Context, home, rootID string, window His
 
 // Revalidate refuses replaced, modified, incomplete and symlinked sources.
 func (h HistoricalUsage) Revalidate(ctx context.Context) (err error) {
-	root, err := os.OpenRoot(h.home)
+	root, err := h.source.open()
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
 	for _, source := range h.sources {
-		path := filepath.Join(".codex/sessions", source.path)
+		path := source.path
 		parts := strings.Split(path, string(filepath.Separator))
 		for i := range parts {
 			info, e := root.Lstat(filepath.Join(parts[:i+1]...))
