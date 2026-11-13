@@ -140,7 +140,20 @@ func claimGraphOwnerReplyTx(ctx context.Context, tx *sql.Tx, in GraphOwnerReply,
 	if e != nil {
 		return out, e
 	}
-	if task != in.TaskRef || mode != in.Mode || workflow != replyWorkflow || status != GraphRunning || (!ownerStop && (!completed || question < 1 || question != in.QuestionCommentID)) {
+	if task != in.TaskRef || mode != in.Mode || workflow != replyWorkflow || status != GraphRunning {
+		return out, graphInvariant("reply does not match published active graph question")
+	}
+	// The open question is still owed its publication: the reply waits for it
+	// like a comment written while the workflow is busy, and answers it once
+	// publication recovery has posted it (#1514).
+	// Chat answers only a question it displayed, so it keeps the invariant.
+	if !ownerStop && (!completed || question < 1) {
+		if chat {
+			return out, graphInvariant("reply does not match published active graph question")
+		}
+		return out, fmt.Errorf("%w: its open question has not been posted yet", ErrGraphOwnerWait)
+	}
+	if !ownerStop && question != in.QuestionCommentID {
 		return out, graphInvariant("reply does not match published active graph question")
 	}
 	var running int
