@@ -18,7 +18,7 @@ agents:
     timeout_seconds: 1800
 ```
 
-Replace the path. This fragment is not a whole file. If you remove Claude, also remove the Claude cell from every permission profile. Restart the daemon (see [running the daemon](../operations/running-the-daemon.md)); the daemon reads the file only at start. A missing/non-executable binary reports the path or searched directories. Use an absolute binary path where launchd's PATH does not include your installation.
+Replace the path. This fragment is not a whole file. If you remove Claude, also remove the Claude cell from every permission profile. Restart the daemon (see [running the daemon](../operations/running-the-daemon.md)); provider settings are read at start. Selected deny groups are the exception described below. A missing/non-executable binary reports the path or searched directories. Use an absolute binary path where launchd's PATH does not include your installation.
 
 ## Models and conversations
 
@@ -29,6 +29,8 @@ Each agent defaults to a 1,800-second wall-clock timeout, independent of whether
 Follow-up runs normally resume the retained conversation. Agent identity belongs to its conversation segment. An ordinary owner turn selecting a different configured agent starts a fresh segment; it does not convert one provider's conversation into another's. Automatic recovery is bound to the original segment and refuses an agent mismatch; use a new ordinary owner instruction to switch, then inspect the next report. Factory changes to effective permissions or delivered instructions can require a fresh conversation. Missing/unusable provider resume state can trigger the documented cold fallback; do not treat a resumed process as an unchanged permission boundary.
 
 ## Permissions and troubleshooting
+
+[Named deny groups](permissions.md#named-deny-groups) add command, file-tool and native-subagent restrictions to Claude graph launches. Graph defaults and node groups combine additively. Each new or resumed attempt resolves current operator settings once and retains its snapshot through capacity retries and cold fallback. No selection keeps the existing provider path. Selected-group Codex requests refuse before process creation until the dependent Codex implementation adds enforcement; this refusal does not change ordinary Codex authentication, resume, usage collection or sandbox limits. A shell-launched CLI is governed as a command, not a native subagent.
 
 - **Build cache denied:** add only the needed absolute directory to Codex `writable_roots`; restart. Factory does not infer home-directory grants.
 - **Network or local test listener denied:** `network_access` is a separate opt-in for workspace-write; it grants outbound networking too.

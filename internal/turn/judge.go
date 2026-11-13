@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/denypolicy"
 	"github.com/cloudvane/litefactory/internal/factorylib"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -45,6 +46,8 @@ type JudgeService struct {
 
 // JudgeRequest is factory-authenticated command context. It grants no workflow writes.
 type JudgeRequest struct {
+	// DenyPolicy contains graph defaults resolved once for this attempt.
+	DenyPolicy                 *denypolicy.Policy
 	Ref                        naming.Ref
 	SessionID, CommentID       int64
 	TicketKey, RemoteCommentID string
@@ -63,6 +66,7 @@ type JudgeRequest struct {
 }
 
 type judgeConfiguration struct {
+	denyPolicy        *denypolicy.Policy
 	ObservedModel     string                 `json:"observed_model,omitempty"`
 	ProviderVersion   string                 `json:"provider_version,omitempty"`
 	Requested         JudgeCommandOptions    `json:"requested"`
@@ -208,6 +212,9 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	if in.GraphInstanceID > 0 {
+		cfg.denyPolicy = in.DenyPolicy.Clone()
+	}
 	invocation := cfg.Effective
 	// One wall-clock budget covers primary and the optional availability fallback.
 	budget := 30 * time.Minute
@@ -341,7 +348,7 @@ func (s *JudgeService) launch(ctx context.Context, q store.JudgeRequest, cfg *ju
 	if err != nil {
 		return report, fmt.Errorf("%w: %w", errJudgePersistence, err)
 	}
-	req := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: a.ID, Model: invocation.Model, Prompt: prompt, WorkingDirectory: workspace.repo, ReadableDirectories: []string{workspace.context}, MCPLaunch: spec, UsageAttemptID: meterAttempt.ID, Usage: &agent.UsageCapture{AttemptID: meterAttempt.ID, Sink: func(c context.Context, event agent.UsageEvent) error {
+	req := agent.JudgeRequest{DenyPolicy: cfg.denyPolicy.Clone(), Invocation: agent.DoctorRequest{Attempt: a.ID, Model: invocation.Model, Prompt: prompt, WorkingDirectory: workspace.repo, ReadableDirectories: []string{workspace.context}, MCPLaunch: spec, UsageAttemptID: meterAttempt.ID, Usage: &agent.UsageCapture{AttemptID: meterAttempt.ID, Sink: func(c context.Context, event agent.UsageEvent) error {
 		return s.DB.RecordMeterEvent(c, meterAttempt.ID, string(invocation.Provider), event)
 	}}}, Thinking: invocation.Thinking}
 	runner := s.Providers[agent.Kind(invocation.Provider)]

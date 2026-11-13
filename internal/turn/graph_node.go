@@ -242,6 +242,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	}
 	activity, dispatchErr := handler.Execute(ctx, handlerOpts, ActivityRequest{
 		Team: req.Profile.Team, Mode: req.Profile.Mode, Workflow: workflow, Node: node.Name, Attrs: node.Attrs,
+		GraphDeny:  req.Profile.Attrs["lf_deny"],
 		InstanceID: instance.ID, NodeAttemptID: attempt.ID, RunID: req.RunID, ResumeRef: req.ResumeRef, Recovery: req.ResumeAttemptID != 0,
 	})
 	activity.Output = slices.Clone(activity.Output)

@@ -83,6 +83,9 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// LoadDenyConfig reloads operator settings at admission and selected attempts.
+	// Nil uses config.Load; unrelated startup settings are never replaced.
+	LoadDenyConfig func(config.Paths) (*config.Config, error)
 	// WorkerTimeoutSeconds is the resolved owner default; node overrides take precedence.
 	WorkerTimeoutSeconds int
 	WorkerTimeoutSource  string

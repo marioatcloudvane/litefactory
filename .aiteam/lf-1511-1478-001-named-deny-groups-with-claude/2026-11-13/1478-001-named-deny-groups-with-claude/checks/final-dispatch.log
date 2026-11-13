@@ -1,0 +1,3 @@
+ok  	github.com/cloudvane/litefactory/internal/turn	735.870s
+ok  	github.com/cloudvane/litefactory/internal/daemon	170.410s
+ok  	github.com/cloudvane/litefactory/internal/cli	43.527s

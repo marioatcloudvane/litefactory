@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/denypolicy"
 	"github.com/cloudvane/litefactory/pkg/execution/graph"
 )
 
@@ -17,6 +18,9 @@ func Validate(p *Profile, registry Registry) error {
 		return errors.New("graph profile is nil")
 	}
 	var faults []error
+	if _, err := denypolicy.ParseReferences(p.Attrs[DenyAttribute]); err != nil {
+		faults = append(faults, fmt.Errorf("graph lf_deny: %w", err))
+	}
 	if _, err := slotCostAttribute(p.Attrs); err != nil {
 		faults = append(faults, fmt.Errorf("graph: %w", err))
 	}
@@ -46,6 +50,15 @@ func Validate(p *Profile, registry Registry) error {
 }
 func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 	var faults []error
+	if value, present := node.Attrs[DenyAttribute]; present {
+		spec, ok := registry.Resolve(node.Action)
+		if node.Terminal || !ok || !spec.Agent {
+			faults = append(faults, fmt.Errorf("node %q: lf_deny is only valid on agent activities", node.Name))
+		}
+		if _, err := denypolicy.ParseReferences(value); err != nil {
+			faults = append(faults, fmt.Errorf("node %q lf_deny: %w", node.Name, err))
+		}
+	}
 	if err := validateOwnerStop(node); err != nil {
 		faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
 	}

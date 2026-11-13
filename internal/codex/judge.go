@@ -21,6 +21,9 @@ import (
 // the context files, with shell commands that cannot write or reach the network. The
 // catalogue removes model-owned apply_patch before Codex builds its registry.
 func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ agent.JudgeRunResult, err error) {
+	if err = selectedDenyRefusal(request.DenyPolicy); err != nil {
+		return agent.JudgeRunResult{}, err
+	}
 	if err = request.Validate(); err != nil {
 		return agent.JudgeRunResult{}, err
 	}

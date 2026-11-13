@@ -523,11 +523,18 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 		}
 	}()
 
-	args := append(r.args(req), r.thinkingArgs(ctx)...)
+	args := r.args(req)
 	var extraEnv []string
 	// Every shell runs inside the OS sandbox the mode selects; see sandbox.go.
-	if toolSurface(req).ReadOnly || slices.Contains(r.surface(req), "Bash") {
-		sandbox, err := r.prepareSandbox(req, logPath)
+	sandboxed := toolSurface(req).ReadOnly || slices.Contains(r.surface(req), "Bash")
+	if req.DenyPolicy.Selected() || sandboxed {
+		var sandbox runSandbox
+		var err error
+		if req.DenyPolicy.Selected() {
+			sandbox, err = r.prepareDenySettings(ctx, req, logPath, sandboxed)
+		} else {
+			sandbox, err = r.prepareSandbox(req, logPath)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -535,6 +542,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 		args = replaceFlagValue(args, "--settings", sandbox.settingsPath)
 		extraEnv = sandbox.env
 	}
+	args = append(args, r.thinkingArgs(ctx)...)
 	mcpPath, cleanupMCP, err := r.prepareMCP(req.MCPLaunch)
 	if err != nil {
 		return nil, err

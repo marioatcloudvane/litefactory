@@ -606,6 +606,14 @@ func (r *validateReviewers) runReadOnlyNode(ctx context.Context, l validateNodeL
 		Invocation:     agent.InvocationResearchNode,
 		Graph:          &agent.GraphInvocation{InstanceID: l.InstanceID, AttemptID: l.NodeAttemptID, RunID: run.ID, Node: nodeName},
 	}
+	node, exists := r.definition.Profile.Node(nodeName)
+	if !exists {
+		return nil, fmt.Errorf("selected deny groups: unknown graph node %q", nodeName)
+	}
+	request.DenyPolicy, err = resolveAttemptDeny(opts, r.definition.Profile.Attrs[graphexec.DenyAttribute], node.Attrs[graphexec.DenyAttribute], nodeName)
+	if err != nil {
+		return nil, err
+	}
 	ownerGuidance, err := opts.DB.OwnerGuidanceForRun(ctx, run.ID)
 	if err != nil {
 		return nil, err

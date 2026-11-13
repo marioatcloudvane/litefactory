@@ -20,8 +20,8 @@
 //
 // Only this file imports a third-party package (gopkg.in/yaml.v3, for
 // decoding). Validation, the secret scan, the tool policy and the path helpers
-// are stdlib-only, which is asserted by a test. The package imports nothing
-// else from litefactory, so every other package may depend on it.
+// use only the standard library and the stdlib-only deny policy leaf, which
+// is asserted by a test. Every other package may depend on config.
 package config
 
 import (
@@ -34,6 +34,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/denypolicy"
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,6 +108,8 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
+	// DenyRules holds optional reusable operator restrictions.
+	DenyRules denypolicy.Catalogue `yaml:"denyrules"`
 	// WorkerTimeoutSeconds is the default allowance for one logical worker attempt.
 	WorkerTimeoutSeconds int `yaml:"worker_timeout_seconds"`
 	// TeamSource is the absolute path of the teams/source folder that
@@ -388,6 +391,7 @@ func Defaults() Config {
 		Webhook:         Webhook{Listen: DefaultWebhookListen},
 		RemoteConnector: DefaultRemoteConnector(),
 		Settings: Settings{
+			DenyRules:            denypolicy.Catalogue{},
 			WorkerTimeoutSeconds: DefaultWorkerTimeoutSeconds,
 			PollIntervalMinutes:  DefaultPollIntervalMinutes,
 			MaxConcurrentRuns:    DefaultMaxConcurrentRuns,
@@ -549,6 +553,9 @@ func Decode(r io.Reader) (*Config, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
+	}
+	if err := strictDenyRules(data); err != nil {
+		return nil, err
 	}
 	if err := strictMCPAutoStart(data); err != nil {
 		return nil, err
@@ -1052,4 +1059,62 @@ func workerTimeoutScalarTag(node *yaml.Node) string {
 		node = node.Alias
 	}
 	return ""
+}
+
+// strictDenyRules preserves the catalogue's explicit string-list schema rather
+// than accepting YAML scalar coercions or merged/aliased group definitions.
+func strictDenyRules(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "settings" {
+			continue
+		}
+		settings := root.Content[i+1]
+		if settings.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(settings.Content); j += 2 {
+			if settings.Content[j].Value != "denyrules" {
+				continue
+			}
+			catalogue := settings.Content[j+1]
+			if catalogue.Kind != yaml.MappingNode || catalogue.Anchor != "" {
+				return errors.New("settings.denyrules must be a map of named groups")
+			}
+			for k := 0; k+1 < len(catalogue.Content); k += 2 {
+				name, group := catalogue.Content[k], catalogue.Content[k+1]
+				if class, secret := ClassifySecret(name.Value); secret {
+					return &SecretError{Key: "settings.denyrules[group name]", Class: class}
+				}
+				if name.Kind != yaml.ScalarNode || name.Tag != "!!str" || group.Kind != yaml.MappingNode || group.Anchor != "" {
+					return errors.New("settings.denyrules requires string group names and explicit group objects")
+				}
+				for l := 0; l+1 < len(group.Content); l += 2 {
+					key, value := group.Content[l], group.Content[l+1]
+					if class, secret := ClassifySecret(key.Value); secret {
+						return &SecretError{Key: fmt.Sprintf("settings.denyrules.%s[field name]", name.Value), Class: class}
+					}
+					if key.Value != "deny" || key.Tag != "!!str" {
+						return fmt.Errorf("settings.denyrules.%s: unknown field %q; expected deny", name.Value, key.Value)
+					}
+					if value.Kind != yaml.SequenceNode || value.Anchor != "" {
+						return fmt.Errorf("settings.denyrules.%s.deny must be an explicit string list", name.Value)
+					}
+					for _, entry := range value.Content {
+						if entry.Kind != yaml.ScalarNode || entry.Tag != "!!str" || entry.Anchor != "" {
+							return fmt.Errorf("settings.denyrules.%s.deny entries must be strings", name.Value)
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
