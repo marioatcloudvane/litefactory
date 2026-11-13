@@ -23,10 +23,22 @@ type lostWebhookFixture struct {
 	forbidden atomic.Bool
 	reads     atomic.Int64
 	posts     atomic.Int64
-	original  time.Time
+	listings  atomic.Int64
+	// hookURL is the URL the repository's hook 9 reports in a hook listing.
+	hookURL  atomic.Value
+	original time.Time
 }
 
 func newLostWebhookFixture(t *testing.T) *lostWebhookFixture {
+	t.Helper()
+	return newLostWebhookFixtureWith(t, true, "")
+}
+
+// newLostWebhookFixtureWith builds the fixture; recorded=false leaves the
+// subscription without a recorded hook ID, as an existing subscription whose
+// hook was made before the ID was kept (#1516). hookURL is the URL hook 9
+// reports in a hook listing; empty means the subscription's callback URL.
+func newLostWebhookFixtureWith(t *testing.T, recorded bool, hookURL string) *lostWebhookFixture {
 	t.Helper()
 	w := newWebhookFixture(t)
 	w.clock.mu.Lock()
@@ -36,6 +48,13 @@ func newLostWebhookFixture(t *testing.T) *lostWebhookFixture {
 	start := w.clock.peek()
 	f.original = start.Add(10 * time.Second)
 	f.origin = recoveryProvider(t, w.fixture, func(out http.ResponseWriter, r *http.Request) bool {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/repos/"+w.repo.Slug()+"/hooks") {
+			f.listings.Add(1)
+			out.Header().Set("Content-Type", "application/json")
+			url, _ := f.hookURL.Load().(string)
+			_, _ = fmt.Fprintf(out, `[{"id":7,"active":true,"events":["push"],"config":{"url":"https://elsewhere.example/hook","content_type":"json"}},{"id":9,"active":true,"events":["issues","issue_comment"],"config":{"url":%q,"content_type":"json"}}]`, url)
+			return true
+		}
 		if !strings.Contains(r.URL.Path, "/hooks/9/deliveries") {
 			return false
 		}
@@ -69,12 +88,18 @@ func newLostWebhookFixture(t *testing.T) *lostWebhookFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, err := w.db.ClaimSubscriptionOperation(t.Context(), sub.ID, sub.Revision, "create")
-	if err != nil {
-		t.Fatal(err)
+	if hookURL == "" {
+		hookURL = sub.CallbackURL
 	}
-	if err := w.db.FinishSubscriptionOperation(t.Context(), op, "confirmed", "9", "active", "", start); err != nil {
-		t.Fatal(err)
+	f.hookURL.Store(hookURL)
+	if recorded {
+		op, err := w.db.ClaimSubscriptionOperation(t.Context(), sub.ID, sub.Revision, "create")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.db.FinishSubscriptionOperation(t.Context(), op, "confirmed", "9", "active", "", start); err != nil {
+			t.Fatal(err)
+		}
 	}
 	w.daemon = newRecoveryDaemon(t, w, f.origin, "lost-webhook", false)
 	w.plantCursor()
@@ -119,6 +144,61 @@ func TestLostIssueWebhookRedeliveredWithinFiveMinutes(t *testing.T) {
 	}
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
 		t.Fatalf("duplicate executions = %v", got)
+	}
+}
+
+// An existing GitHub subscription with no recorded hook ID finds its hook by
+// the callback URL, records the ID and redelivers a failed delivery, without an
+// operator step (#1516).
+func TestLostWebhookRedeliveredWhenHookIDWasNotRecorded(t *testing.T) {
+	f := newLostWebhookFixtureWith(t, false, "")
+	f.clock.advance(10 * time.Second)
+	f.assignedIssue("Lost webhook", "/spike investigate the lost webhook")
+	f.failed.Store(true)
+	f.clock.advance(6 * time.Minute)
+	f.settle()
+	if got := f.posts.Load(); got != 1 {
+		t.Fatalf("redelivery POSTs with an unrecorded hook ID = %d, want 1\nlogs:\n%s", got, f.fixture.logs)
+	}
+	sub, err := f.db.GetTicketSubscription(t.Context(), recoverySelector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.RemoteHookID != "9" {
+		t.Fatalf("recorded hook ID = %q, want 9", sub.RemoteHookID)
+	}
+	if strings.Contains(f.fixture.logs.String(), "webhook recovery off") {
+		t.Fatalf("recovery reported off although the hook was found\nlogs:\n%s", f.fixture.logs)
+	}
+}
+
+// When no listed hook points at the subscription's callback, recovery says so
+// once as a warning with the reason, not as an INFO that polling covers intake.
+func TestUnfoundHookIsWarnedOnce(t *testing.T) {
+	f := newLostWebhookFixtureWith(t, false, "https://other.example/webhook")
+	f.clock.advance(10 * time.Second)
+	f.assignedIssue("Lost webhook", "/spike investigate the lost webhook")
+	f.failed.Store(true)
+	for range 3 {
+		f.clock.advance(5*time.Minute + time.Second)
+		f.settle()
+	}
+	logs := f.fixture.logs.String()
+	const line = "webhook recovery off: the repository's webhook could not be found"
+	var warned []string
+	for _, entry := range strings.Split(logs, "\n") {
+		if strings.Contains(entry, line) {
+			warned = append(warned, entry)
+		}
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], "level=WARN") || !strings.Contains(warned[0], "reason=") {
+		t.Fatalf("want one WARN %q with a reason\nlogs:\n%s", line, logs)
+	}
+	if strings.Contains(logs, "webhooks and ordinary polling cover intake") {
+		t.Fatalf("unfound hook still logged as covered by polling\nlogs:\n%s", logs)
+	}
+	if got := f.posts.Load(); got != 0 {
+		t.Fatalf("redelivery POSTs without a hook = %d", got)
 	}
 }
 

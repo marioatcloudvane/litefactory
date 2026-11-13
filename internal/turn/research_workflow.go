@@ -790,7 +790,7 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 	return nil
 }
 
-// RecoverGraphPublications reconciles retained Research, Spike and Implement
+// RecoverGraphPublications reconciles retained Research, Spike, Doctor, Implement and Bug
 // publications, then resumes an instance whose comment or question step failed
 // only because its delivery was uncertain, once that exact delivery is
 // confirmed. The instance continues as if the step had returned published. It
@@ -805,7 +805,10 @@ func RecoverGraphPublications(ctx context.Context, opts Options, sessionID int64
 			return err
 		}
 	}
-	return nil
+	// Bug's questions are posted here too, so an owner reply never meets a
+	// question still owed its publication (#1514). Its failed-step resume
+	// stays with Execute.
+	return RecoverWorkflowPublications(ctx, opts, sessionID, BugWorkflowPolicy())
 }
 
 // resumeConfirmedPublication follows the failed step's declared published edge

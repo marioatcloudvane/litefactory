@@ -290,6 +290,11 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 		f.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"id": remoteID, "full_name": owner + "/" + name})
 	})
+	// Webhook recovery looks up a subscription's hook by its callback URL when
+	// no hook ID is recorded (#1516); this forge has no hooks.
+	mux.HandleFunc("GET "+repos+"/hooks", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	})
 	mux.HandleFunc("GET "+repos+"/issues", f.handleListIssues)
 	mux.HandleFunc("POST "+repos+"/issues", f.handleCreateIssue)
 	mux.HandleFunc("GET "+repos+"/issues/{number}", f.handleGetIssue)
