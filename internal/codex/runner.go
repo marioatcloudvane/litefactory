@@ -257,7 +257,9 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 // Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunResult, runErr error) {
 	defer func() { r.providerObserver.Observe(ctx, req, result, runErr) }()
-	if err := selectedDenyRefusal(req.DenyPolicy); err != nil {
+	req.DenyPolicy = req.DenyPolicy.Clone()
+	policy, err := compileDenyPolicy(req.DenyPolicy)
+	if err != nil {
 		return nil, err
 	}
 	if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
@@ -290,6 +292,16 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunR
 	if sandbox != "read-only" && sandbox != "workspace-write" {
 		return nil, fmt.Errorf("%w: unsupported codex sandbox %q", agent.ErrInvalidRequest, sandbox)
 	}
+	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
+	defer cancel()
+	release, err := r.acquireDenyLease(runCtx, req)
+	if err != nil {
+		if policy != nil {
+			return nil, denyPolicyError(req.DenyPolicy, err.Error())
+		}
+		return nil, err
+	}
+	defer release()
 	logPath, err := naming.RunLogPath(r.home, req.Ref, req.RunOrdinal)
 	if err != nil {
 		return nil, err
@@ -320,16 +332,50 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunR
 		// Overrides must precede the resume subcommand and its positional id.
 		args = append([]string{args[0], "-c", overrides}, args[1:]...)
 	}
-	runCtx, cancel := agent.InvocationContext(ctx, r.timeout)
-	defer cancel()
 	stackEnv, err := req.StackEnvironment(native.Environment(r.environ))
 	if err != nil {
 		return nil, err
 	}
+	var selected *selectedLaunch
+	if policy != nil {
+		selected, args, stackEnv, err = r.prepareSelectedLaunch(runCtx, req, policy, sandbox, args, stackEnv)
+		if err != nil {
+			return nil, err
+		}
+	}
 	startLocation := machineLocation()
 	collector := newUsageCollector(runCtx, req)
-	collector.prepareRollouts(stackEnv)
+	if selected != nil {
+		collector.prepareRolloutsFromRoot(filepath.Join(selected.canonical, "sessions"))
+	} else {
+		collector.prepareRollouts(stackEnv)
+	}
 	var stream streamState
+	var sessionLeaseErr error
+	var nativeRelease func()
+	defer func() {
+		if nativeRelease != nil {
+			nativeRelease()
+		}
+	}()
+	observeSession := func(line []byte) {
+		if req.Invocation != agent.InvocationGraphNode || sessionLeaseErr != nil {
+			return
+		}
+		var event struct {
+			Type     string `json:"type"`
+			ThreadID string `json:"thread_id"`
+		}
+		if json.Unmarshal(line, &event) != nil || event.Type != "thread.started" || event.ThreadID == "" || event.ThreadID == req.Session.Resume || nativeRelease != nil {
+			return
+		}
+		adoptCtx, adoptCancel := context.WithTimeout(runCtx, 100*time.Millisecond)
+		nativeRelease, sessionLeaseErr = r.acquireNativeDenyLease(adoptCtx, event.ThreadID)
+		adoptCancel()
+		if sessionLeaseErr != nil {
+			cancel()
+		}
+	}
 	if r.goBuildCaches.Main != "" {
 		cache := r.goBuildCaches.Main
 		if sandbox == "read-only" {
@@ -340,9 +386,32 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunR
 		}
 		stackEnv = managedCacheEnv(stackEnv, cache)
 	}
-	capture, err := native.Execute(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Environment: stackEnv, Directory: req.WorktreePath, Prompt: req.Prompt, Logger: r.logger,
-		BeforeLaunch: func(ctx context.Context) error { return agent.VerifyRequestDelivery(ctx, req) },
-		Consume:      func(stdout io.Reader) { stream = consumeUsage(stdout, logFile, collector) },
+	capture, err := native.Execute(runCtx, native.Prepared{Binary: r.binary.Path, Arguments: args, Environment: stackEnv, Directory: req.WorktreePath, Prompt: req.Prompt, Logger: r.logger, CleanupTree: selected != nil,
+		BeforeLaunch: func(ctx context.Context) error {
+			if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
+				return err
+			}
+			if selected != nil {
+				if err := selected.verify(); err != nil {
+					return denyPolicyError(req.DenyPolicy, err.Error())
+				}
+				canonical, err := r.denyCanonicalHome()
+				if err != nil {
+					return denyPolicyError(req.DenyPolicy, err.Error())
+				}
+				if canonical != selected.canonical {
+					return denyPolicyError(req.DenyPolicy, "canonical state target changed before launch")
+				}
+				if err := r.checkSelectedConfiguration(ctx, req, stackEnv, args); err != nil {
+					return denyPolicyError(req.DenyPolicy, err.Error())
+				}
+				if err := selected.verify(); err != nil {
+					return denyPolicyError(req.DenyPolicy, err.Error())
+				}
+			}
+			return nil
+		},
+		Consume: func(stdout io.Reader) { stream = consumeUsageObserved(stdout, logFile, collector, observeSession) },
 		OnStarted: func() {
 			r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
 				"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)
@@ -350,6 +419,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *agent.RunR
 	if err != nil {
 		collector.finish()
 		return nil, err
+	}
+	if selected != nil && capture.ExitCode == 0 && capture.WaitError != nil {
+		collector.finish()
+		return nil, fmt.Errorf("codex selected process cleanup failed: %w", capture.WaitError)
+	}
+	if sessionLeaseErr != nil {
+		collector.finish()
+		return nil, fmt.Errorf("codex native session identity conflicts with an active attempt: %w", sessionLeaseErr)
 	}
 	started, finished, exitCode := capture.StartedAt, capture.FinishedAt, capture.ExitCode
 	result = &agent.RunResult{ExitCode: exitCode, SessionID: req.Session.Ref, ResumeToken: stream.threadID,
@@ -538,7 +615,7 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 		network = false
 		args = append(args, "-c", `default_permissions="factory_reviewer"`, "-c", `permissions.factory_reviewer.filesystem={"/"="read",`+strconv.Quote(r.goBuildCaches.Reviewer)+`="write"}`, "-c", `permissions.factory_reviewer.network.enabled=false`)
 	}
-	return native.Arguments(native.Options{AllowUserConfig: !ignoreUserConfig, Permission: permission, ExtraArgs: args, WritableRoots: roots, NetworkAccess: network, Model: model, Effort: string(thinking), ReasoningSummary: summary}, session), nil
+	return native.Arguments(native.Options{AllowUserConfig: !ignoreUserConfig || req.DenyPolicy.Selected(), LoadRules: req.DenyPolicy.Selected(), Permission: permission, ExtraArgs: args, WritableRoots: roots, NetworkAccess: network, Model: model, Effort: string(thinking), ReasoningSummary: summary}, session), nil
 }
 
 // reasoningSummary maps the factory setting to the native summary selection.
@@ -572,9 +649,15 @@ func (s streamState) native() native.Stream {
 }
 func consume(src io.Reader, sink io.Writer) streamState { return consumeUsage(src, sink, nil) }
 func consumeUsage(src io.Reader, sink io.Writer, collector *usageCollector) streamState {
+	return consumeUsageObserved(src, sink, collector, nil)
+}
+func consumeUsageObserved(src io.Reader, sink io.Writer, collector *usageCollector, observer func([]byte)) streamState {
 	class := agent.ProviderUnknown
 	out := fromNative(native.Consume(src, sink, func(line []byte) {
 		collector.observe(line)
+		if observer != nil {
+			observer(line)
+		}
 		class = providerLineClass(class, line)
 	}))
 	out.providerFailure = class

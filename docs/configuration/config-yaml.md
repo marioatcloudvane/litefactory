@@ -144,6 +144,8 @@ If the `chat.discord` mapping is present, all of its keys are checked, even with
 
 Refused old root keys: `max_concurrent_runs`, `default_base_branch`, `feature_prefix`, `worktree_root`, `worktree_retain_days`, `log_level` (move them under `settings`), `poll_interval_seconds`, `github` (now `providers.github`), `claude` (now `agents.claude`), `default_agent` (the first entry under `agents` is the default), `teams` and `settings.team_config` (delete them; agents are built in).
 
+Selected groups use the same catalogue and additive graph selection for both runtimes. Codex 0.160.0 admits only plain literal `Bash(...:*)` prefixes and bare `Agent`; `Read`, `Edit`, named agents and unsupported command forms refuse the whole launch. Its protected configuration preserves the existing file login and canonical session/usage store. See [Codex support and session compatibility](permissions.md#codex-support-and-session-compatibility) for version, authentication, native matching and refusal limits.
+
 ## providers.github
 
 | Key | Type | Default | Range | Effect |
@@ -194,7 +196,7 @@ An executing invocation keeps its recorded agent. Later continuations reapply se
 | `agents.codex.timeout_seconds` | integer | `1800` | 60 to 86400 | Deprecated migration input for the single worker default; see worker timing below. |
 | `agents.codex.writable_roots` | list of strings | empty | absolute paths, none empty | Extra folders Codex may write besides the worktree (for example a build cache). Each one widens the sandbox. |
 | `agents.codex.network_access` | boolean | `false` | `true` or `false` | Allow network in the workspace-write sandbox. This also allows outbound traffic, not just local test servers. |
-| `agents.codex.allow_user_config` | boolean | `false` | `true` or `false` | Let Codex read your personal Codex config. Off keeps runs isolated from it. |
+| `agents.codex.allow_user_config` | boolean | `false` | `true` or `false` | Let ordinary Codex runs read your personal Codex config. Selected deny-group runs always use protected factory configuration and exclude personal/project policy layers. |
 
 ## tiers
 

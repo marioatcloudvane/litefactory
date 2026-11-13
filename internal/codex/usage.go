@@ -34,3 +34,9 @@ func (c *usageCollector) prepareRollouts(environ []string) {
 		c.native.PrepareRollouts(environ)
 	}
 }
+
+func (c *usageCollector) prepareRolloutsFromRoot(root string) {
+	if c != nil {
+		c.native.PrepareRolloutsFromRoot(root)
+	}
+}

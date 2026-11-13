@@ -140,7 +140,7 @@ Spike registers no activities of its own: one result-routed `lf_agent`
 | `lf_task` | agent | Task text. | 1–65536 bytes (node, then role, then graph default) |
 | `lf_access` | agent | Tool access. | `read`, `write` (Validate repair and Bug: write) |
 | `lf_budget` | agent | Time budget per run in minutes. | 1–1440 |
-| `lf_deny` | graph default, registered agent node | Add reusable deny groups from operator settings. | comma-separated case-sensitive group names; graph-first additive union, exact duplicates removed; empty node value retains defaults |
+| `lf_deny` | graph default, registered agent node | Add reusable deny groups from operator settings; [runtime support](../configuration/permissions.md#codex-support-and-session-compatibility) is checked before launch. | comma-separated case-sensitive group names; graph-first additive union, exact duplicates removed; empty node value retains defaults |
 | `lf_response` | agent | Routes the agent's retained result as the outcome: the agent declares its responses (e.g. `ask, done`) instead of `success`. | `result` (Bug agents also need `lf_park=owner`) |
 | `lf_park` | Bug nodes | Parks at the owner instead of failing. | `owner` |
 | `lf_stop` | Bug nodes | Outcomes that park at the owner (no edge). | from blocked, failed, invalid, exhausted, stale (first four required) |

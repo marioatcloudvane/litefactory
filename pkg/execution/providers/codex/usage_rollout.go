@@ -20,7 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/pkg/execution/agent"
 )
 
-// Rollouts are read only within the subprocess's existing HOME. No config,
+// Rollouts are read only from the existing HOME or an explicit canonical source. No config,
 // credentials, transcript bodies or paths cross the usage sink. This collector
 // runs synchronously on the stdout reader and after Wait; no worker outlives Run.
 // Bounds cover each discovery and the total bytes consumed over the execution.
@@ -37,7 +37,7 @@ type rolloutBaseline struct {
 }
 type rolloutUsage struct {
 	root            *os.Root
-	home            string
+	source          rolloutSource
 	baseline        map[string]rolloutBaseline
 	files           map[string]*rolloutFile
 	lastScan        time.Time
@@ -104,33 +104,55 @@ func (c *UsageCollector) prepareRollouts(environ []string) {
 		c.diagnostic("usage_source_home_missing")
 		return
 	}
-	root, err := os.OpenRoot(home)
+	c.prepareRolloutSource(rolloutSource{home: home, directory: ".codex/sessions"})
+}
+
+// rolloutSource anchors all reads and checks every component below that anchor.
+// An explicit source is anchored at the filesystem root, so even its ancestors
+// must be real directories. Default callers retain the existing HOME anchor.
+type rolloutSource struct {
+	home, directory string
+}
+
+func canonicalRolloutSource(path string) (rolloutSource, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == string(filepath.Separator) {
+		return rolloutSource{}, errors.New("invalid canonical rollout source")
+	}
+	return rolloutSource{home: string(filepath.Separator), directory: strings.TrimPrefix(path, string(filepath.Separator))}, nil
+}
+
+func (s rolloutSource) open() (_ *os.Root, err error) {
+	root, err := os.OpenRoot(s.home)
 	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	parts := strings.Split(s.directory, string(filepath.Separator))
+	for i := range parts {
+		info, err := root.Lstat(filepath.Join(parts[:i+1]...))
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("rollout source symlink or non-directory refused")
+		}
+	}
+	return root.OpenRoot(s.directory)
+}
+
+func (c *UsageCollector) prepareRolloutSource(source rolloutSource) {
+	if c == nil {
+		return
+	}
+	sessions, err := source.open()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		c.diagnostic("usage_source_unavailable")
 		return
 	}
-	defer func() {
-		if err := root.Close(); err != nil {
-			c.diagnostic("usage_source_close_failed")
-		}
-	}()
-	for _, path := range []string{".codex", ".codex/sessions"} {
-		info, err := root.Lstat(path)
-		if errors.Is(err, fs.ErrNotExist) {
-			c.rollouts = &rolloutUsage{home: home, baseline: make(map[string]rolloutBaseline), files: make(map[string]*rolloutFile)}
-			return
-		}
-		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			c.diagnostic("usage_source_unavailable")
-			return
-		}
-	}
-	sessions, err := root.OpenRoot(".codex/sessions")
-	if err != nil {
-		c.diagnostic("usage_source_unavailable")
+	c.rollouts = &rolloutUsage{root: sessions, source: source, baseline: make(map[string]rolloutBaseline), files: make(map[string]*rolloutFile)}
+	if sessions == nil {
 		return
 	}
-	c.rollouts = &rolloutUsage{root: sessions, baseline: make(map[string]rolloutBaseline), files: make(map[string]*rolloutFile)}
 	if err := c.walkRollouts(func(path string, info fs.FileInfo) error {
 		c.rollouts.baseline[path] = rolloutBaseline{info.Size(), info}
 		return nil
@@ -225,31 +247,16 @@ func (c *UsageCollector) collectRollouts(final bool) {
 	}
 	r := c.rollouts
 	if r.root == nil {
-		home, err := os.OpenRoot(r.home)
+		var err error
+		r.root, err = r.source.open()
 		if err != nil {
-			c.diagnostic("usage_source_unavailable")
-			return
-		}
-		defer func() {
-			if err := home.Close(); err != nil {
-				c.diagnostic("usage_source_close_failed")
+			if final || !errors.Is(err, fs.ErrNotExist) {
+				c.diagnostic("usage_source_unavailable")
 			}
-		}()
-		for _, path := range []string{".codex", ".codex/sessions"} {
-			info, err := home.Lstat(path)
-			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				if final {
-					c.diagnostic("usage_source_unavailable")
-				}
-				return
-			}
-		}
-		r.root, err = home.OpenRoot(".codex/sessions")
-		if err != nil {
-			c.diagnostic("usage_source_unavailable")
 			return
 		}
 	}
+
 	if !final && time.Since(r.lastScan) < time.Second {
 		return
 	}

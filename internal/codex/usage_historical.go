@@ -25,6 +25,20 @@ func CollectHistoricalUsage(ctx context.Context, home, attempt, rootID string, w
 		return HistoricalUsage{}, errors.New("invalid historical usage scope")
 	}
 	source, err := native.CollectHistoricalUsage(ctx, home, rootID, window)
+	return historicalUsage(attempt, source), err
+}
+
+// CollectHistoricalUsageFromRoot preserves factory attribution for an explicit
+// host-validated canonical sessions directory.
+func CollectHistoricalUsageFromRoot(ctx context.Context, root, attempt, rootID string, window HistoricalWindow) (HistoricalUsage, error) {
+	if attempt == "" || len(attempt) > 256 || strings.ContainsAny(attempt, "\x00\n\r\t") {
+		return HistoricalUsage{}, errors.New("invalid historical usage scope")
+	}
+	source, err := native.CollectHistoricalUsageFromRoot(ctx, root, rootID, window)
+	return historicalUsage(attempt, source), err
+}
+
+func historicalUsage(attempt string, source native.HistoricalUsage) HistoricalUsage {
 	result := HistoricalUsage{Diagnostics: source.Diagnostics, source: source}
 	for _, n := range source.Invocations {
 		result.Invocations = append(result.Invocations, agent.UsageInvocation{AttemptID: attempt, ID: n.ID, ParentID: n.ParentID, SourceID: n.SourceID, SourceInvocationID: n.SourceInvocationID, Coverage: n.Coverage})
@@ -32,7 +46,7 @@ func CollectHistoricalUsage(ctx context.Context, home, attempt, rootID string, w
 	for _, n := range source.Observations {
 		result.Observations = append(result.Observations, agent.UsageObservation{AttemptID: attempt, SourceID: n.SourceID, EventKey: n.EventKey, InvocationID: n.InvocationID, ActualModel: n.ActualModel, ModelProvenance: n.ModelProvenance, Mode: n.Mode, Scope: n.Scope, CounterKey: n.CounterKey, CounterEpoch: n.CounterEpoch, Tokens: n.Tokens, Coverage: n.Coverage})
 	}
-	return result, err
+	return result
 }
 
 // Revalidate checks that the neutral source files still match the collected evidence.

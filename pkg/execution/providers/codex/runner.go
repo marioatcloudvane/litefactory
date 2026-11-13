@@ -33,8 +33,10 @@ type Options struct {
 	WritableRoots                   []string
 	NetworkAccess                   bool
 	AllowUserConfig                 bool
-	ExtraArgs                       []string
-	Logger                          *slog.Logger
+	// LoadRules opts into native rules for a caller-prepared protected configuration.
+	LoadRules bool
+	ExtraArgs []string
+	Logger    *slog.Logger
 }
 
 // Runner executes prepared inputs using the native JSONL protocol.
@@ -79,7 +81,9 @@ func Arguments(options Options, session string) []string {
 	if !options.AllowUserConfig {
 		args = append(args, "--ignore-user-config")
 	}
-	args = append(args, "--ignore-rules")
+	if !options.LoadRules {
+		args = append(args, "--ignore-rules")
+	}
 	if options.Permission != nil {
 		args = append(args, "--sandbox", options.Permission.Mode)
 	}
@@ -140,7 +144,9 @@ type Prepared struct {
 	BeforeLaunch           func(context.Context) error
 	Consume                func(io.Reader)
 	OnStarted              func()
-	Logger                 *slog.Logger
+	// CleanupTree stops remaining members of the owned native process group on exit.
+	CleanupTree bool
+	Logger      *slog.Logger
 }
 
 // Capture reports native lifecycle facts without factory outcome policy.
@@ -160,9 +166,32 @@ func Execute(ctx context.Context, input Prepared) (capture Capture, failure erro
 	killCtx := context.WithoutCancel(ctx)
 	var cmd *exec.Cmd
 	var stdout io.ReadCloser
+	var selectedStderr *os.File
+	var selectedWriters []*os.File
+	var guardian *selectedGroupGuardian
 	stderr := newTailWriter(64 << 10)
 	capture.StartedAt = time.Now()
 	err := agent.Start(ctx, input.Binary, input.Directory, func() error {
+		started := false
+		selectedWriters, selectedStderr, guardian = nil, nil, nil
+		defer func() {
+			if started || !input.CleanupTree {
+				return
+			}
+			if guardian != nil {
+				_ = guardian.stop()
+				guardian = nil
+			}
+			if stdout != nil {
+				_ = stdout.Close()
+			}
+			if selectedStderr != nil {
+				_ = selectedStderr.Close()
+			}
+			for _, writer := range selectedWriters {
+				_ = writer.Close()
+			}
+		}()
 		cmd = Command(ctx, input.Binary, input.Arguments...)
 		cmd.Dir, cmd.Env, cmd.Stdin = input.Directory, append([]string{}, input.Environment...), strings.NewReader(input.Prompt)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -173,11 +202,26 @@ func Execute(ctx context.Context, input Prepared) (capture Capture, failure erro
 			return agent.KillSubtree(killCtx, cmd.Process.Pid, input.Logger)
 		}
 		var err error
-		stdout, err = cmd.StdoutPipe()
+		if input.CleanupTree {
+			var outWriter, errWriter *os.File
+			stdout, outWriter, err = os.Pipe()
+			if err == nil {
+				selectedWriters = append(selectedWriters, outWriter)
+				selectedStderr, errWriter, err = os.Pipe()
+				if err == nil {
+					selectedWriters = append(selectedWriters, errWriter)
+					cmd.Stdout, cmd.Stderr = outWriter, errWriter
+				}
+			}
+		} else {
+			stdout, err = cmd.StdoutPipe()
+		}
 		if err != nil {
 			return err
 		}
-		cmd.Stderr = stderr
+		if !input.CleanupTree {
+			cmd.Stderr = stderr
+		}
 		if input.BeforeLaunch != nil {
 			if err := input.BeforeLaunch(ctx); err != nil {
 				_ = stdout.Close()
@@ -187,25 +231,61 @@ func Execute(ctx context.Context, input Prepared) (capture Capture, failure erro
 				return err
 			}
 		}
+		if input.CleanupTree {
+			guardian, err = startSelectedGroupGuardian(ctx)
+			if err != nil {
+				_ = stdout.Close()
+				_ = selectedStderr.Close()
+				return err
+			}
+			cmd.SysProcAttr.Pgid = guardian.command.Process.Pid
+		}
 		if err := cmd.Start(); err != nil {
+			if guardian != nil {
+				_ = guardian.stop()
+				guardian = nil
+			}
+			if selectedStderr != nil {
+				_ = selectedStderr.Close()
+			}
 			_ = stdout.Close()
 			return fmt.Errorf("codex did not start: %w", err)
 		}
+		started = true
 		return nil
 	})
+	for _, writer := range selectedWriters {
+		_ = writer.Close()
+	}
 	if err != nil {
+		if stdout != nil {
+			_ = stdout.Close()
+		}
+		if selectedStderr != nil {
+			_ = selectedStderr.Close()
+		}
 		return capture, err
 	}
 	capture.Started = true
 	if input.OnStarted != nil {
 		input.OnStarted()
 	}
+	var selectedWait <-chan error
+	var selectedOutputDone func()
+	if input.CleanupTree {
+		selectedWait, selectedOutputDone = waitSelectedProcess(cmd, guardian, stdout, selectedStderr, stderr)
+	}
 	if input.Consume != nil {
 		input.Consume(stdout)
 	} else {
 		_, _ = io.Copy(io.Discard, stdout)
 	}
-	capture.WaitError = cmd.Wait()
+	if input.CleanupTree {
+		selectedOutputDone()
+		capture.WaitError = <-selectedWait
+	} else {
+		capture.WaitError = cmd.Wait()
+	}
 	capture.FinishedAt = time.Now()
 	capture.ExitCode = -1
 	if cmd.ProcessState != nil {

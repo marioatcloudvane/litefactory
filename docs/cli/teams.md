@@ -57,6 +57,9 @@ settings:
     no_reviewer:
       deny:
         - 'Agent(reviewer)'
+    no_delegation:
+      deny:
+        - 'Agent'
 ```
 
 These are example commands and paths for your project; they need not exist in a shipped team. Edit the applicable workflow DOT in the folder printed by `team clone`. Add a graph attribute and attributes to existing `lf_agent` nodes, retaining their roles, outcomes and edges:
@@ -70,9 +73,9 @@ other_worker [lf_deny=""];
 
 Use your actual agent node names in place of `worker` and `other_worker`. The first node gets `full_checks`, `private_files`, then `no_reviewer`; the repeated group is removed. The empty node still gets `full_checks`. Selections contain group names only. Never put `lf_deny` on a terminal, control or judge node, even with an empty value. Shipped teams remain unchanged and contain no group references.
 
-Select Claude for the run. Codex with selected groups currently refuses before launch; its support follows in the dependent story. See [named deny groups](../configuration/permissions.md#named-deny-groups) for the supported native forms, worktree and absolute path anchors, matching limits and refusal recovery. New and resumed selected attempts read current operator settings; active attempts retain their rules through retries and cold fallback. Other configuration changes still need a daemon restart.
+Use Claude for the file and named-agent selections above. For Codex 0.160.0, keep the `full_checks` graph default and replace the first node selection with `worker [lf_deny="no_delegation"];`. That delivers both literal command-prefix bans and disables all native delegation; use an empty node selection when delegation should remain allowed. Do not select `private_files` or `no_reviewer` for Codex: either refuses the entire launch, including the supported entries. See [named deny groups](../configuration/permissions.md#named-deny-groups) for the supported native forms, worktree and absolute path anchors, matching limits and refusal recovery. New and resumed selected attempts read current operator settings; active attempts retain their rules through retries and cold fallback. Other configuration changes still need a daemon restart.
 
-Try the documented denied and unrelated allowed actions with your installed Claude, including a permitted native descendant and resume. This is a live owner check; automated launch tests do not establish native enforcement. Correct an unknown name, malformed rule or unsupported runtime selection using the launch diagnostic, then retry.
+Try the documented denied and unrelated allowed actions with your supported runtime, including a permitted native descendant and resume. For Codex, use the existing file-based login and check that adding, changing and removing groups preserves your conversation and usage records; unsupported credential modes refuse before launch. This is a live owner check; automated launch tests do not establish native enforcement. Correct an unknown name, malformed rule or unsupported runtime selection using the launch diagnostic, then retry.
 
 ## Link a team to a repository
 
