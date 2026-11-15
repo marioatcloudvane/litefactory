@@ -41,6 +41,7 @@ func DefaultFileContents() []byte {
 #   cooldown_minutes: 60
 #   pool_wait_minutes: 30
 #   no_progress_minutes: 120
+#   no_progress_open_minutes: 5 # a no_progress failure must persist this long before it opens
 #   delivery_wait_minutes: 15
 #   quiet_hours: {enabled: true, start: "23:00", end: "07:00"}
 #   rules: {disk_low: true, pool_blocked: true, no_progress: true,

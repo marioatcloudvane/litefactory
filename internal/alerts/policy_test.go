@@ -103,7 +103,7 @@ func TestFactoryRuleBoundaries(t *testing.T) {
 		at = at.Add(time.Second)
 		policyMust(t, e.Progress(t.Context(), task, at))
 		policyActive(t, e, "no_progress", "task", task.Task, false)
-		at = at.Add(time.Second)
+		at = at.Add(5 * time.Minute)
 		policyMust(t, e.Progress(t.Context(), task, at))
 		policyActive(t, e, "no_progress", "task", task.Task, true)
 		task.Waiting = true
@@ -116,7 +116,7 @@ func TestFactoryRuleBoundaries(t *testing.T) {
 		task.Waiting = false
 		at = at.Add(time.Minute)
 		policyMust(t, e.Progress(t.Context(), task, at))
-		at = at.Add(time.Minute)
+		at = at.Add(5 * time.Minute)
 		policyMust(t, e.Progress(t.Context(), task, at))
 		policyActive(t, e, "no_progress", "task", task.Task, true)
 		task.ProgressAt = at.Add(time.Second)
@@ -816,7 +816,7 @@ func TestDeliveryLastSuccessSurvivesLaterUnavailableAndHistoryFailure(t *testing
 		t.Fatal("confirmed send did not record successful delivery time")
 	}
 	later := at.Add(time.Minute)
-	policyObserve(t, e, "no_progress", "failing", "critical", "progress-failure-first", later.Add(-time.Second))
+	policyObserve(t, e, "no_progress", "failing", "critical", "progress-failure-first", later.Add(-5*time.Minute))
 	policyObserve(t, e, "no_progress", "failing", "critical", "progress-failure", later)
 	transport.send = func(context.Context, Message) Delivery { return Delivery{Unavailable: "delivery_unavailable"} }
 	_, err = e.SendStep(t.Context(), later, "123", "7", transport)
@@ -845,7 +845,7 @@ func TestDeliveryLastSuccessSurvivesLaterUnavailableAndHistoryFailure(t *testing
 func TestSavedResultRevisionSuppliesDurableProgressEvidence(t *testing.T) {
 	e := policyEngine(t)
 	task := store.AlertTaskSource{Task: "github:acme/api#88", HasWork: true, ProgressAt: policyAt.Add(-3 * time.Hour), Version: "work:result:1"}
-	policyMust(t, e.Progress(t.Context(), task, policyAt.Add(-time.Second)))
+	policyMust(t, e.Progress(t.Context(), task, policyAt.Add(-5*time.Minute)))
 	policyMust(t, e.Progress(t.Context(), task, policyAt))
 	subject := SubjectID("no_progress", "task", task.Task)
 	if !policyLedger(t, e).Subjects[subject].Active {
@@ -864,26 +864,46 @@ func TestSavedResultRevisionSuppliesDurableProgressEvidence(t *testing.T) {
 	}
 }
 
-// A no_progress condition that clears within two scans must never page: one
-// failing scan (for example a transient needs_poll from a routine drain)
-// opens nothing, and only a second consecutive failing scan opens.
-func TestNoProgressOpensOnlyAfterTwoConsecutiveFailingScans(t *testing.T) {
+// A no_progress failure opens only once it has persisted for the open delay
+// (default 5 minutes). The reported flaps (a routine drain sets needs_poll,
+// failing scans every 30 s, cleared about 60 s later) must never page, and an
+// interruption restarts the delay.
+func TestNoProgressOpensOnlyAfterFailurePersistsForOpenDelay(t *testing.T) {
 	e := policyEngine(t)
 	task := store.AlertTaskSource{Task: "github:test/factory#1523", HasWork: true, Version: "bug", ProgressAt: policyAt.Add(-3 * time.Hour)}
-	at := policyAt
-	policyMust(t, e.Progress(t.Context(), task, at))
-	policyActive(t, e, "no_progress", "task", task.Task, false)
-	task.Waiting = true
-	at = at.Add(30 * time.Second)
-	policyMust(t, e.Progress(t.Context(), task, at))
-	task.Waiting = false
-	at = at.Add(30 * time.Second)
-	policyMust(t, e.Progress(t.Context(), task, at))
-	policyActive(t, e, "no_progress", "task", task.Task, false)
-	for _, n := range policyLedger(t, e).Notifications {
-		t.Fatalf("interrupted failing scans queued %s", n.Kind)
+	scan := func(at time.Time, waiting bool) {
+		t.Helper()
+		task.Waiting = waiting
+		policyMust(t, e.Progress(t.Context(), task, at))
 	}
+	// A 60 s flap: failing scans at 0, 30 s and 60 s, then clean.
+	at := policyAt
+	for i := 0; i < 3; i++ {
+		scan(at, false)
+		at = at.Add(30 * time.Second)
+	}
+	scan(at, true)
+	policyActive(t, e, "no_progress", "task", task.Task, false)
+	// A longer run that is interrupted before the delay restarts the delay.
 	at = at.Add(30 * time.Second)
-	policyMust(t, e.Progress(t.Context(), task, at))
+	start := at
+	for ; at.Sub(start) < 4*time.Minute+30*time.Second; at = at.Add(30 * time.Second) {
+		scan(at, false)
+	}
+	scan(at, false)
+	policyActive(t, e, "no_progress", "task", task.Task, false)
+	at = at.Add(30 * time.Second)
+	scan(at, true)
+	for _, n := range policyLedger(t, e).Notifications {
+		t.Fatalf("failure shorter than the open delay queued %s", n.Kind)
+	}
+	// A failure that persists for the full delay opens.
+	at = at.Add(30 * time.Second)
+	start = at
+	for ; at.Sub(start) < 5*time.Minute; at = at.Add(30 * time.Second) {
+		scan(at, false)
+		policyActive(t, e, "no_progress", "task", task.Task, false)
+	}
+	scan(at, false)
 	policyActive(t, e, "no_progress", "task", task.Task, true)
 }

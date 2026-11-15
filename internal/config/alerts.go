@@ -10,16 +10,19 @@ import (
 
 // AlertsSettings controls notifications only; observation never changes work.
 type AlertsSettings struct {
-	CI                  CITarget        `yaml:"ci"`
-	Enabled             bool            `yaml:"enabled"`
-	ChannelID           string          `yaml:"channel_id"`
-	MentionOwner        string          `yaml:"mention_owner"`
-	CooldownMinutes     int             `yaml:"cooldown_minutes"`
-	PoolWaitMinutes     int             `yaml:"pool_wait_minutes"`
-	NoProgressMinutes   int             `yaml:"no_progress_minutes"`
-	DeliveryWaitMinutes int             `yaml:"delivery_wait_minutes"`
-	QuietHours          AlertQuietHours `yaml:"quiet_hours"`
-	Rules               map[string]bool `yaml:"rules"`
+	CI                CITarget `yaml:"ci"`
+	Enabled           bool     `yaml:"enabled"`
+	ChannelID         string   `yaml:"channel_id"`
+	MentionOwner      string   `yaml:"mention_owner"`
+	CooldownMinutes   int      `yaml:"cooldown_minutes"`
+	PoolWaitMinutes   int      `yaml:"pool_wait_minutes"`
+	NoProgressMinutes int      `yaml:"no_progress_minutes"`
+	// NoProgressOpenMinutes is how long a no_progress failure must persist
+	// before it opens, so a short flap never pages.
+	NoProgressOpenMinutes int             `yaml:"no_progress_open_minutes"`
+	DeliveryWaitMinutes   int             `yaml:"delivery_wait_minutes"`
+	QuietHours            AlertQuietHours `yaml:"quiet_hours"`
+	Rules                 map[string]bool `yaml:"rules"`
 }
 
 // CITarget selects one factory workflow on the configured GitHub origin.
@@ -45,7 +48,7 @@ func DefaultAlerts() AlertsSettings {
 	for _, name := range AlertRuleNames {
 		rules[name] = true
 	}
-	return AlertsSettings{CI: CITarget{Repository: "marioatcloudvane/litefactory", Branch: "main", Workflow: ".github/workflows/check.yml"}, Enabled: true, MentionOwner: "critical", CooldownMinutes: 60, PoolWaitMinutes: 30, NoProgressMinutes: 120, DeliveryWaitMinutes: 15, QuietHours: AlertQuietHours{Enabled: true, Start: "23:00", End: "07:00"}, Rules: rules}
+	return AlertsSettings{CI: CITarget{Repository: "marioatcloudvane/litefactory", Branch: "main", Workflow: ".github/workflows/check.yml"}, Enabled: true, MentionOwner: "critical", CooldownMinutes: 60, PoolWaitMinutes: 30, NoProgressMinutes: 120, NoProgressOpenMinutes: 5, DeliveryWaitMinutes: 15, QuietHours: AlertQuietHours{Enabled: true, Start: "23:00", End: "07:00"}, Rules: rules}
 }
 
 // EffectiveAlerts returns a copy, including defaults on an absent block.
@@ -75,7 +78,7 @@ func (c *Config) validateAlerts() []error {
 	for _, value := range []struct {
 		name  string
 		value int
-	}{{"cooldown_minutes", a.CooldownMinutes}, {"pool_wait_minutes", a.PoolWaitMinutes}, {"no_progress_minutes", a.NoProgressMinutes}, {"delivery_wait_minutes", a.DeliveryWaitMinutes}} {
+	}{{"cooldown_minutes", a.CooldownMinutes}, {"pool_wait_minutes", a.PoolWaitMinutes}, {"no_progress_minutes", a.NoProgressMinutes}, {"no_progress_open_minutes", a.NoProgressOpenMinutes}, {"delivery_wait_minutes", a.DeliveryWaitMinutes}} {
 		if value.value < 1 || value.value > 10080 {
 			errs = append(errs, fmt.Errorf("alerts.%s must be between 1 and 10080", value.name))
 		}
