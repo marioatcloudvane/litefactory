@@ -96,6 +96,7 @@ func TestFactoryAlertJourney(t *testing.T) {
 	task := store.AlertTaskSource{Task: "github:test/factory#1", Version: "implement", ProgressAt: at.Add(-121 * time.Minute)}
 	stuck := alerts.Observation{Rule: "no_progress", Kind: "task", Key: task.Task}
 	must(engine.Disk(ctx, at, 99, 100, nil))
+	must(engine.Progress(ctx, task, at.Add(-30*time.Second)))
 	must(engine.Progress(ctx, task, at))
 	drain()
 	if len(posts) != 2 {
@@ -108,6 +109,7 @@ func TestFactoryAlertJourney(t *testing.T) {
 	}
 	at = at.Add(time.Minute)
 	must(engine.Disk(ctx, at, 99, 100, nil))
+	must(engine.Progress(ctx, task, at.Add(-30*time.Second)))
 	must(engine.Progress(ctx, task, at))
 	drain()
 	if len(posts) != 2 {

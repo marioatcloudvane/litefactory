@@ -122,8 +122,11 @@ func TestFactoryAlertNoProgressNeedsTerminalSourceEvidence(t *testing.T) {
 	if err := d.db.SetSessionState(ctx, session.ID, store.SessionRunning); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.observeAlerts(ctx, at); err != nil {
-		t.Fatal(err)
+	// no_progress opens on the second consecutive failing scan.
+	for _, stamp := range []time.Time{at.Add(-30 * time.Second), at} {
+		if err := d.observeAlerts(ctx, stamp); err != nil {
+			t.Fatal(err)
+		}
 	}
 	key := alerts.SubjectID("no_progress", "task", session.TaskRef)
 	ledger, err := d.db.ReadAlerts(ctx)
@@ -288,6 +291,8 @@ func TestFactoryAlertRetainedInputAfterCompletion(t *testing.T) {
 					t.Fatal("not idle")
 				}
 				if opening != "none" {
+					// no_progress opens on the second consecutive failing scan.
+					must(d.observeAlerts(ctx, at.Add(-30*time.Second)))
 					must(d.observeAlerts(ctx, at))
 					if opening == "confirmed" || opening == "uncertain" {
 						drain(at)
@@ -390,6 +395,7 @@ func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
 		}
 		t.Fatal("not idle")
 	}
+	must(d.observeAlerts(ctx, at.Add(-30*time.Second)))
 	must(d.observeAlerts(ctx, at))
 	drain()
 	original := d.db

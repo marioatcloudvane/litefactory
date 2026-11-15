@@ -39,6 +39,9 @@ type AlertSubject struct {
 	ProviderClass                                                         string
 	Consecutive                                                           int
 	WindowStart                                                           time.Time
+	// FailingScans counts consecutive failing observations; no_progress opens
+	// only on the second so a flap clearing within one scan never pages.
+	FailingScans int
 }
 
 // AlertEpisode retains confirmation debt independently of recurrence.

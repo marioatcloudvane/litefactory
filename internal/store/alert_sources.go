@@ -300,7 +300,9 @@ func (db *DB) AlertTaskSettled(ctx context.Context, kind, key string) (bool, err
 }
 
 // alertTaskTerminalSQL is shared by both source paths and recovery. Backlog
-// retirement or the latest delivered/finished workflow is affirmative evidence;
+// retirement or the latest delivered/finished/complete workflow is affirmative
+// evidence (Bug, Spike and Research graphs end at complete). A routine drain
+// sets needs_poll on idle sessions, so the flag alone is never progress debt;
 // retained historical input alone cannot override it. New admitted input and
 // live execution, schedules or continuations still own work.
 const alertTaskTerminalSQL = `s.state<>'running'
@@ -308,7 +310,7 @@ const alertTaskTerminalSQL = `s.state<>'running'
  AND NOT EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='running')
  AND NOT EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending')
  AND NOT EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending')
- AND (s.needs_poll=0 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='succeeded' AND g.current_node IN ('delivered','finished')
+ AND (s.needs_poll=0 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='succeeded' AND g.current_node IN ('delivered','finished','complete')
  AND NOT EXISTS(SELECT 1 FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL AND c.classification='instruction' AND max(c.created_at,c.recorded_at)>g.finished_at)))`
 
 // AlertTaskTerminal requires affirmative completion and no current work owner.

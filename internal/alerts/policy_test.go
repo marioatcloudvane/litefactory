@@ -102,6 +102,9 @@ func TestFactoryRuleBoundaries(t *testing.T) {
 		policyActive(t, e, "no_progress", "task", task.Task, false)
 		at = at.Add(time.Second)
 		policyMust(t, e.Progress(t.Context(), task, at))
+		policyActive(t, e, "no_progress", "task", task.Task, false)
+		at = at.Add(time.Second)
+		policyMust(t, e.Progress(t.Context(), task, at))
 		policyActive(t, e, "no_progress", "task", task.Task, true)
 		task.Waiting = true
 		at = at.Add(time.Minute)
@@ -111,6 +114,8 @@ func TestFactoryRuleBoundaries(t *testing.T) {
 		policyMust(t, e.Progress(t.Context(), task, at))
 		policyActive(t, e, "no_progress", "task", task.Task, false)
 		task.Waiting = false
+		at = at.Add(time.Minute)
+		policyMust(t, e.Progress(t.Context(), task, at))
 		at = at.Add(time.Minute)
 		policyMust(t, e.Progress(t.Context(), task, at))
 		policyActive(t, e, "no_progress", "task", task.Task, true)
@@ -811,6 +816,7 @@ func TestDeliveryLastSuccessSurvivesLaterUnavailableAndHistoryFailure(t *testing
 		t.Fatal("confirmed send did not record successful delivery time")
 	}
 	later := at.Add(time.Minute)
+	policyObserve(t, e, "no_progress", "failing", "critical", "progress-failure-first", later.Add(-time.Second))
 	policyObserve(t, e, "no_progress", "failing", "critical", "progress-failure", later)
 	transport.send = func(context.Context, Message) Delivery { return Delivery{Unavailable: "delivery_unavailable"} }
 	_, err = e.SendStep(t.Context(), later, "123", "7", transport)
@@ -839,6 +845,7 @@ func TestDeliveryLastSuccessSurvivesLaterUnavailableAndHistoryFailure(t *testing
 func TestSavedResultRevisionSuppliesDurableProgressEvidence(t *testing.T) {
 	e := policyEngine(t)
 	task := store.AlertTaskSource{Task: "github:acme/api#88", HasWork: true, ProgressAt: policyAt.Add(-3 * time.Hour), Version: "work:result:1"}
+	policyMust(t, e.Progress(t.Context(), task, policyAt.Add(-time.Second)))
 	policyMust(t, e.Progress(t.Context(), task, policyAt))
 	subject := SubjectID("no_progress", "task", task.Task)
 	if !policyLedger(t, e).Subjects[subject].Active {
@@ -855,4 +862,28 @@ func TestSavedResultRevisionSuppliesDurableProgressEvidence(t *testing.T) {
 	if ledger.Subjects[subject].Active || !ledger.Subjects[subject].LastProgress.Equal(policyAt.Add(time.Minute)) {
 		t.Fatal("saved result progress observation was lost across engine restart")
 	}
+}
+
+// A no_progress condition that clears within two scans must never page: one
+// failing scan (for example a transient needs_poll from a routine drain)
+// opens nothing, and only a second consecutive failing scan opens.
+func TestNoProgressOpensOnlyAfterTwoConsecutiveFailingScans(t *testing.T) {
+	e := policyEngine(t)
+	task := store.AlertTaskSource{Task: "github:test/factory#1523", HasWork: true, Version: "bug", ProgressAt: policyAt.Add(-3 * time.Hour)}
+	at := policyAt
+	policyMust(t, e.Progress(t.Context(), task, at))
+	policyActive(t, e, "no_progress", "task", task.Task, false)
+	task.Waiting = true
+	at = at.Add(30 * time.Second)
+	policyMust(t, e.Progress(t.Context(), task, at))
+	task.Waiting = false
+	at = at.Add(30 * time.Second)
+	policyMust(t, e.Progress(t.Context(), task, at))
+	policyActive(t, e, "no_progress", "task", task.Task, false)
+	for _, n := range policyLedger(t, e).Notifications {
+		t.Fatalf("interrupted failing scans queued %s", n.Kind)
+	}
+	at = at.Add(30 * time.Second)
+	policyMust(t, e.Progress(t.Context(), task, at))
+	policyActive(t, e, "no_progress", "task", task.Task, true)
 }

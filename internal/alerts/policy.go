@@ -91,12 +91,22 @@ func (e *Engine) observe(l *store.AlertLedger, o Observation) error {
 		}
 		l.Evidence[evidenceKey] = store.AlertEvidence{ID: o.ID, Rule: o.Rule, Subject: id, Source: o.Source, Condition: o.Condition, At: o.At, RecoveryEvidence: o.RecoveryEvidence, Approximate: o.Approximate}
 	}
+	if o.Condition == "failing" {
+		s.FailingScans++
+	} else {
+		s.FailingScans = 0
+	}
 	switch o.Condition {
 	case "failing":
 		s.CleanCount = 0
 		s.RecoveryEvidence = ""
 		s.FailureEvidence = o.ID
 		l.Evidence["last-failure:"+id] = store.AlertEvidence{At: o.At}
+		// A no_progress snapshot opens only after two consecutive failing
+		// scans: a condition that clears within one scan never pages.
+		if !s.Active && o.Rule == "no_progress" && s.FailingScans < 2 {
+			return nil
+		}
 		if !s.Active {
 			s.Active = true
 			s.Episode++

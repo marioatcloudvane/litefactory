@@ -551,8 +551,8 @@ func TestAlertTaskSourcesFutureQuotaContinuationDoesNotHideRunningWork(t *testin
 }
 
 func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
-	for _, mode := range []string{"bug", "implement", "plan", "research", "validate"} {
-		for _, scenario := range []string{"delivered", "finished", "retired", "failed", "cancelled", "handoff", "new-input", "new-admission", "new-graph", "older-running", "schedule", "running"} {
+	for _, mode := range []string{"bug", "implement", "plan", "research", "spike", "validate"} {
+		for _, scenario := range []string{"delivered", "finished", "complete", "retired", "failed", "cancelled", "handoff", "new-input", "new-admission", "new-graph", "older-running", "schedule", "running"} {
 			t.Run(mode+"/"+scenario, func(t *testing.T) {
 				db, g := graphDispatchFixture(t)
 				ctx := t.Context()
@@ -574,6 +574,10 @@ func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
 				status := GraphSucceeded
 				if scenario == "finished" {
 					node = "finished"
+				}
+				// Bug, Spike and Research graphs end at their complete node.
+				if scenario == "complete" {
+					node = "complete"
 				}
 				if scenario == "handoff" {
 					node = "ready"
@@ -616,7 +620,7 @@ func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
 				must(err)
 				terminal, err := db.AlertTaskTerminal(ctx, session.TaskRef)
 				must(err)
-				want := scenario == "delivered" || scenario == "finished" || scenario == "retired" || scenario == "older-running"
+				want := scenario == "delivered" || scenario == "finished" || scenario == "complete" || scenario == "retired" || scenario == "older-running"
 				if terminal != want {
 					t.Fatalf("terminal=%t want=%t", terminal, want)
 				}
