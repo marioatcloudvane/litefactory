@@ -111,7 +111,7 @@ func (r *planGraphRuntime) selectDiscussion(ctx context.Context) error {
 // a failed, non-waiting story uses recovery and normal stage selection. It runs
 // after admitReply so recovery never substitutes for source authentication.
 func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
-	if !r.discussion || r.story == "" {
+	if (!r.discussion && !r.offeredRetry()) || r.story == "" {
 		return false, nil
 	}
 	s, _, err := r.state(ctx)
@@ -148,6 +148,18 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 		return r.opts.DB.GraphFailureReported(ctx, source.RunID, PlanFailureNode)
 	}
 	return false, nil
+}
+
+// offeredRetry reports the owner's own `/plan …` reply on a story's issue, the
+// retry a failure notice offers. It is a command, not discussion, yet it must
+// release the same false holds an ordinary retry does (#1521).
+func (r *planGraphRuntime) offeredRetry() bool {
+	t := r.req.Trigger
+	if t.PlanReply == nil || t.CommentID < 1 || store.IsFactoryTrigger(t.CommentID) || t.AuthorID < 1 || t.AuthorID != r.ownerID {
+		return false
+	}
+	c := ParseCommand(t.Body)
+	return c.Kind == KindSpike && c.Name == "/plan"
 }
 
 // clearSettledEffect drops a stale Effect marker from a story that has no hold

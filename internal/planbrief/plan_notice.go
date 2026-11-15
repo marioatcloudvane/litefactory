@@ -109,9 +109,11 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 		return "This story could not be found in the plan."
 	}
 	// Ordinary input may recover a failed stage without approving its held
-	// candidate when there is no review waiting. Existing waits retain their
-	// revision and hold checks; lifecycle restrictions apply to every reply.
-	if item.Active() && item.Wait == nil && (len(parts) == 0 || (parts[0] != "/approve-plan" && parts[0] != "/retire-plan")) {
+	// candidate when there is no review waiting, or when the story is held, as
+	// a wait left open by a held write can never be answered (#1521). Other
+	// waits retain their revision and hold checks; lifecycle restrictions apply
+	// to every reply.
+	if item.Active() && (item.Wait == nil || item.Blocked()) && (len(parts) == 0 || (parts[0] != "/approve-plan" && parts[0] != "/retire-plan")) {
 		return ""
 	}
 	if reason := s.PlanReplyHold(key); reason != "" {

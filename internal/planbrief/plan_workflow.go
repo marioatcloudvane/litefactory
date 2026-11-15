@@ -518,9 +518,14 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 	// nothing is approved, and the story's next stage runs again. This is the
 	// rule PlanReplyReason applies; approval and retirement commands still need
 	// their wait (#1229).
-	if w == nil && r.WaitID == "" && item.Active() {
+	// A held story takes the same feedback even with a review still open: a
+	// write held after that review was shown leaves a wait no command can
+	// satisfy, and the retry must reach the run that re-checks the hold
+	// (#1521). The wait is superseded; the hold stays for that run.
+	if ((w == nil && r.WaitID == "") || item.Blocked()) && item.Active() {
 		if parts := strings.Fields(commandtext.Normalize(r.Body)); len(parts) == 0 || (parts[0] != "/approve-plan" && parts[0] != "/retire-plan") {
 			s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
+			item.Wait = nil
 			return false, nil
 		}
 	}
