@@ -366,6 +366,10 @@ func (c *Client) mutateIssue(ctx context.Context, ref ticket.Ref, input map[stri
 	return observed, nil
 }
 
+// staleReadbackDelays bounds the re-reads after a content write whose readback
+// still shows the old description. A package variable only so tests can shorten it.
+var staleReadbackDelays = []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second}
+
 // UpdateContent checks a fresh raw revision and equivalent Markdown readback; writes are not atomic CAS.
 func (c *Client) UpdateContent(ctx context.Context, ref ticket.Ref, revision string, title, body redact.Body) (ticket.Snapshot, error) {
 	current, err := c.Read(ctx, ref)
@@ -378,6 +382,24 @@ func (c *Client) UpdateContent(ctx context.Context, ref ticket.Ref, revision str
 	observed, err := c.mutateIssue(ctx, ref, map[string]any{"title": title.String(), "description": EncodeContent(body.String())})
 	if err != nil {
 		return ticket.Snapshot{}, err
+	}
+	// Linear can serve the pre-update description right after it accepted the
+	// mutation (MAR-116, #1525). While the raw revision is still the one we
+	// wrote over, re-read for a bounded time before calling it a conflict.
+	for _, delay := range staleReadbackDelays {
+		if observed.Revision != current.Revision || (observed.Title == title.String() && ContentEquivalent(body.String(), observed.Body)) {
+			break
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ticket.Snapshot{}, failure("update content", ticket.Uncertain, "authoritative readback unavailable")
+		case <-timer.C:
+		}
+		if observed, err = c.Read(ctx, ref); err != nil {
+			return ticket.Snapshot{}, failure("update content", ticket.Uncertain, "authoritative readback unavailable")
+		}
 	}
 	if observed.Title != title.String() || !ContentEquivalent(body.String(), observed.Body) {
 		c.logContentDifference(ctx, ref, title.String(), body.String(), observed)
