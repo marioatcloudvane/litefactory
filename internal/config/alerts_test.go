@@ -12,7 +12,7 @@ func TestAlertConfigurationDefaultsAndOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := cfg.EffectiveAlerts()
-	if !a.Enabled || a.MentionOwner != "critical" || a.CooldownMinutes != 60 || a.PoolWaitMinutes != 30 || a.NoProgressMinutes != 120 || a.DeliveryWaitMinutes != 15 || !a.QuietHours.Enabled || a.QuietHours.Start != "23:00" || a.QuietHours.End != "07:00" {
+	if !a.Enabled || a.MentionOwner != "critical" || a.CooldownMinutes != 60 || a.PoolWaitMinutes != 30 || a.NoProgressMinutes != 120 || a.NoProgressOpenMinutes != 5 || a.DeliveryWaitMinutes != 15 || !a.QuietHours.Enabled || a.QuietHours.Start != "23:00" || a.QuietHours.End != "07:00" {
 		t.Fatalf("defaults = %+v", a)
 	}
 	a.Rules["disk_low"] = false
@@ -32,6 +32,7 @@ func TestAlertConfigurationValidation(t *testing.T) {
 	for _, tt := range []struct{ body, want string }{
 		{"alerts: {pool_wait_minutes: 0}", "pool_wait_minutes"},
 		{"alerts: {no_progress_minutes: -1}", "no_progress_minutes"},
+		{"alerts: {no_progress_open_minutes: 0}", "no_progress_open_minutes"},
 		{"alerts: {delivery_wait_minutes: 10081}", "delivery_wait_minutes"},
 		{"alerts: {mention_owner: everyone}", "mention_owner"},
 		{"alerts: {rules: {typo: true}}", "unknown rule"},

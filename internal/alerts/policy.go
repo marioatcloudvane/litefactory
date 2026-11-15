@@ -91,12 +91,22 @@ func (e *Engine) observe(l *store.AlertLedger, o Observation) error {
 		}
 		l.Evidence[evidenceKey] = store.AlertEvidence{ID: o.ID, Rule: o.Rule, Subject: id, Source: o.Source, Condition: o.Condition, At: o.At, RecoveryEvidence: o.RecoveryEvidence, Approximate: o.Approximate}
 	}
+	if o.Condition != "failing" {
+		s.FailingSince = time.Time{}
+	} else if s.FailingSince.IsZero() {
+		s.FailingSince = o.At
+	}
 	switch o.Condition {
 	case "failing":
 		s.CleanCount = 0
 		s.RecoveryEvidence = ""
 		s.FailureEvidence = o.ID
 		l.Evidence["last-failure:"+id] = store.AlertEvidence{At: o.At}
+		// A no_progress failure opens only once it has persisted for the open
+		// delay: a flap that clears sooner never pages.
+		if !s.Active && o.Rule == "no_progress" && o.At.Sub(s.FailingSince) < e.noProgressOpenDelay() {
+			return nil
+		}
 		if !s.Active {
 			s.Active = true
 			s.Episode++
@@ -145,6 +155,13 @@ func (e *Engine) observe(l *store.AlertLedger, o Observation) error {
 		s.CleanCount = 0
 	}
 	return nil
+}
+func (e *Engine) noProgressOpenDelay() time.Duration {
+	minutes := e.Settings.NoProgressOpenMinutes
+	if minutes <= 0 {
+		minutes = config.DefaultAlerts().NoProgressOpenMinutes
+	}
+	return time.Duration(minutes) * time.Minute
 }
 func rank(s string) int {
 	if s == "critical" {

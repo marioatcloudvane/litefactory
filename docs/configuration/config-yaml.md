@@ -258,6 +258,7 @@ commands, recovery and installed verification.
 | `alerts.cooldown_minutes` | integer | `60` | 1–10080 | Recovery-to-recurrence notification cooldown; incidents remain visible. |
 | `alerts.pool_wait_minutes` | integer | `30` | 1–10080 | Eligible work waiting beyond this interval with a full shared pool opens a critical incident. |
 | `alerts.no_progress_minutes` | integer | `120` | 1–10080 | Task progress delay; authoritative owner and planned waits are excluded. |
+| `alerts.no_progress_open_minutes` | integer | `5` | 1–10080 | How long a `no_progress` failure must persist, without an interrupting clean scan, before the incident opens; shorter flaps never page. |
 | `alerts.delivery_wait_minutes` | integer | `15` | 1–10080 | Original report-delivery uncertainty delay before warning. |
 | `alerts.quiet_hours.enabled` | boolean | `true` | `true` or `false` | Hold warning notifications for a digest; critical notifications bypass quiet hours. |
 | `alerts.quiet_hours.start` | string | `23:00` | `HH:MM`, host-local 24-hour clock | Inclusive quiet-hours start. |

@@ -122,8 +122,11 @@ func TestFactoryAlertNoProgressNeedsTerminalSourceEvidence(t *testing.T) {
 	if err := d.db.SetSessionState(ctx, session.ID, store.SessionRunning); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.observeAlerts(ctx, at); err != nil {
-		t.Fatal(err)
+	// no_progress opens once the failure has lasted the open delay.
+	for _, stamp := range []time.Time{at.Add(-5 * time.Minute), at} {
+		if err := d.observeAlerts(ctx, stamp); err != nil {
+			t.Fatal(err)
+		}
 	}
 	key := alerts.SubjectID("no_progress", "task", session.TaskRef)
 	ledger, err := d.db.ReadAlerts(ctx)
@@ -288,6 +291,8 @@ func TestFactoryAlertRetainedInputAfterCompletion(t *testing.T) {
 					t.Fatal("not idle")
 				}
 				if opening != "none" {
+					// no_progress opens once the failure has lasted the open delay.
+					must(d.observeAlerts(ctx, at.Add(-5*time.Minute)))
 					must(d.observeAlerts(ctx, at))
 					if opening == "confirmed" || opening == "uncertain" {
 						drain(at)
@@ -390,6 +395,7 @@ func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
 		}
 		t.Fatal("not idle")
 	}
+	must(d.observeAlerts(ctx, at.Add(-5*time.Minute)))
 	must(d.observeAlerts(ctx, at))
 	drain()
 	original := d.db
@@ -419,10 +425,13 @@ func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
 		t.Fatal("cancelled read accepted")
 	}
 	// A bounded scan cannot use absence to clear an existing episode either.
+	// The filler sessions are live work: needs_poll alone without a graph is
+	// a finished session and would not fill the bound.
 	for i := 0; i < 1001; i++ {
 		s, err := original.GetOrCreateSession(ctx, repo, 2000+i)
 		must(err)
 		must(original.SetSessionNeedsPoll(ctx, s.ID))
+		must(original.SetSessionState(ctx, s.ID, store.SessionRunning))
 	}
 	must(d.observeAlerts(ctx, at.Add(time.Minute)))
 	drain()
@@ -438,6 +447,7 @@ func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
 		s, err := original.GetOrCreateSession(ctx, repo, 2000+i)
 		must(err)
 		must(original.ClearSessionNeedsPoll(ctx, s.ID))
+		must(original.SetSessionState(ctx, s.ID, store.SessionIdle))
 	}
 	for i := 1; i <= 2; i++ {
 		at = at.Add(time.Duration(i) * time.Minute)

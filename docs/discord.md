@@ -245,6 +245,7 @@ alerts:
   cooldown_minutes: 60
   pool_wait_minutes: 30
   no_progress_minutes: 120
+  no_progress_open_minutes: 5   # failure must persist this long before it opens
   delivery_wait_minutes: 15
   quiet_hours:
     enabled: true

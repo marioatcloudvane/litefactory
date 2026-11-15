@@ -93,9 +93,10 @@ func TestFactoryAlertJourney(t *testing.T) {
 		t.Fatal("alert delivery did not become idle")
 	}
 	disk := alerts.Observation{Rule: "disk_low", Kind: "factory disk", Key: "daemon-volume"}
-	task := store.AlertTaskSource{Task: "github:test/factory#1", Version: "implement", ProgressAt: at.Add(-121 * time.Minute)}
+	task := store.AlertTaskSource{Task: "github:test/factory#1", Version: "implement", ProgressAt: at.Add(-126 * time.Minute)}
 	stuck := alerts.Observation{Rule: "no_progress", Kind: "task", Key: task.Task}
 	must(engine.Disk(ctx, at, 99, 100, nil))
+	must(engine.Progress(ctx, task, at.Add(-5*time.Minute)))
 	must(engine.Progress(ctx, task, at))
 	drain()
 	if len(posts) != 2 {
@@ -108,6 +109,7 @@ func TestFactoryAlertJourney(t *testing.T) {
 	}
 	at = at.Add(time.Minute)
 	must(engine.Disk(ctx, at, 99, 100, nil))
+	must(engine.Progress(ctx, task, at.Add(-5*time.Minute)))
 	must(engine.Progress(ctx, task, at))
 	drain()
 	if len(posts) != 2 {
