@@ -425,10 +425,13 @@ func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
 		t.Fatal("cancelled read accepted")
 	}
 	// A bounded scan cannot use absence to clear an existing episode either.
+	// The filler sessions are live work: needs_poll alone without a graph is
+	// a finished session and would not fill the bound.
 	for i := 0; i < 1001; i++ {
 		s, err := original.GetOrCreateSession(ctx, repo, 2000+i)
 		must(err)
 		must(original.SetSessionNeedsPoll(ctx, s.ID))
+		must(original.SetSessionState(ctx, s.ID, store.SessionRunning))
 	}
 	must(d.observeAlerts(ctx, at.Add(time.Minute)))
 	drain()
@@ -444,6 +447,7 @@ func TestFactoryAlertUnavailableScanCannotRecoverOrRepeat(t *testing.T) {
 		s, err := original.GetOrCreateSession(ctx, repo, 2000+i)
 		must(err)
 		must(original.ClearSessionNeedsPoll(ctx, s.ID))
+		must(original.SetSessionState(ctx, s.ID, store.SessionIdle))
 	}
 	for i := 1; i <= 2; i++ {
 		at = at.Add(time.Duration(i) * time.Minute)

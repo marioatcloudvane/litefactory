@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,10 +237,14 @@ func TestAlertTaskSourcesUnpublishedPlanWaitIncludesChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// These are admitted live Plan sessions; retired backlog must not be
-	// revived by a retained policy ledger.
+	// These are admitted live Plan sessions with running graphs; retired
+	// backlog must not be revived by a retained policy ledger.
+	definition := graphTestDefinition(t, db)
 	for _, session := range []Session{parent, child} {
 		if err = db.SetSessionNeedsPoll(ctx, session.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "work", StartedAt: graphTestTime()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -483,8 +488,9 @@ func TestAlertTaskSourcesNeedsPollAloneDoesNotMeanWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := session.CreatedAt.Add(3 * time.Hour)
+	// With no graph, run, schedule or continuation the session is finished.
 	rows, complete, err := db.AlertTaskSources(ctx, at)
-	if err != nil || !complete || len(rows) != 1 || rows[0].HasWork || rows[0].Eligible || rows[0].Waiting {
+	if err != nil || !complete || len(rows) != 0 {
 		t.Fatalf("discovery-only session falsely active: %+v %t %v", rows, complete, err)
 	}
 	if err = db.SetSessionState(ctx, session.ID, SessionRunning); err != nil {
@@ -552,7 +558,7 @@ func TestAlertTaskSourcesFutureQuotaContinuationDoesNotHideRunningWork(t *testin
 
 func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
 	for _, mode := range []string{"bug", "implement", "plan", "research", "spike", "validate"} {
-		for _, scenario := range []string{"delivered", "finished", "complete", "retired", "failed", "cancelled", "handoff", "new-input", "new-admission", "new-graph", "older-running", "schedule", "running"} {
+		for _, scenario := range []string{"delivered", "finished", "complete", "completed", "retired", "failed", "owner-close", "cancelled", "cancelled-new-input", "cancelled-schedule", "cancelled-running", "handoff", "new-input", "new-admission", "new-graph", "older-running", "schedule", "running"} {
 			t.Run(mode+"/"+scenario, func(t *testing.T) {
 				db, g := graphDispatchFixture(t)
 				ctx := t.Context()
@@ -579,13 +585,22 @@ func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
 				if scenario == "complete" {
 					node = "complete"
 				}
+				// Older graph definitions ended at completed; a succeeded graph is
+				// finished at any end node.
+				if scenario == "completed" {
+					node = "completed"
+				}
 				if scenario == "handoff" {
 					node = "ready"
 				}
 				if scenario == "failed" {
 					status = GraphFailed
 				}
-				if scenario == "cancelled" {
+				// The owner closed the task: a failed close is still finished.
+				if scenario == "owner-close" {
+					node, status = "owner_close", GraphFailed
+				}
+				if strings.HasPrefix(scenario, "cancelled") {
 					status = GraphCancelled
 				}
 				_, err = db.sql.ExecContext(ctx, `UPDATE graph_instances SET current_node=? WHERE id=?`, node, g.ID)
@@ -598,7 +613,7 @@ func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
 				switch scenario {
 				case "retired":
 					must(db.ClearSessionNeedsPoll(ctx, g.SessionID))
-				case "new-input":
+				case "new-input", "cancelled-new-input":
 					_, err = db.sql.ExecContext(ctx, `UPDATE comments SET created_at=? WHERE session_id=?`, FormatTime(at), g.SessionID)
 					must(err)
 				case "new-admission":
@@ -610,17 +625,17 @@ func TestAlertCompletedSourcesAndCurrentWork(t *testing.T) {
 					if scenario == "older-running" {
 						must(db.SetGraphInstanceStatus(ctx, next.ID, GraphSucceeded, time.Time{}, at))
 					}
-				case "schedule":
+				case "schedule", "cancelled-schedule":
 					_, _, err = db.CreateOrGetSchedule(ctx, CreateScheduleParams{SessionID: g.SessionID, SourceCommentID: 99, OwnerHandle: "owner", Payload: "work", DueAt: at})
 					must(err)
-				case "running":
+				case "running", "cancelled-running":
 					must(db.SetSessionState(ctx, g.SessionID, SessionRunning))
 				}
 				session, err := db.GetSession(ctx, g.SessionID)
 				must(err)
 				terminal, err := db.AlertTaskTerminal(ctx, session.TaskRef)
 				must(err)
-				want := scenario == "delivered" || scenario == "finished" || scenario == "complete" || scenario == "retired" || scenario == "older-running"
+				want := scenario == "delivered" || scenario == "finished" || scenario == "complete" || scenario == "completed" || scenario == "owner-close" || scenario == "cancelled" || scenario == "handoff" || scenario == "retired" || scenario == "older-running"
 				if terminal != want {
 					t.Fatalf("terminal=%t want=%t", terminal, want)
 				}
@@ -715,5 +730,60 @@ func TestAlertRetiredInputsDoNotExhaustSourceBound(t *testing.T) {
 	rows, complete, err := db.AlertTaskSources(ctx, graphTestTime())
 	if err != nil || !complete || len(rows) != 1 || rows[0].SessionID != live.ID || !rows[0].Running {
 		t.Fatalf("retired rows exhausted source bound: %+v complete=%t err=%v", rows, complete, err)
+	}
+}
+
+// A session with no graph instance at all (an old pre-graph session) and no
+// live run, schedule or continuation is not stalled work, whatever needs_poll
+// says. Owner input newer than its last run, or a pending schedule, still is.
+func TestAlertNoGraphSessionTerminalUnlessCurrentWork(t *testing.T) {
+	for _, scenario := range []string{"idle", "new-input", "never-ran", "schedule", "running-run"} {
+		t.Run(scenario, func(t *testing.T) {
+			db := newTestDB(t)
+			ctx := t.Context()
+			must := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			session := testSession(t, db, 4503)
+			at := graphTestTime().Add(4 * time.Hour)
+			recordOwnerInput(t, db, session.ID, 30, "retained")
+			_, err := db.RetainOwnerInstruction(ctx, session.ID, 30, 42, "retained", OwnerInputTarget{})
+			must(err)
+			if scenario != "never-ran" {
+				run := testRun(t, db, session.ID, 55)
+				status := "succeeded"
+				if scenario == "running-run" {
+					status = "running"
+				}
+				_, err = db.sql.ExecContext(ctx, `UPDATE runs SET status=?,finished_at=? WHERE id=?`, status, FormatTime(at.Add(-time.Hour)), run.ID)
+				must(err)
+			}
+			_, err = db.sql.ExecContext(ctx, `UPDATE comments SET created_at=?,recorded_at=? WHERE session_id=?`, FormatTime(at.Add(-2*time.Hour)), FormatTime(at.Add(-2*time.Hour)), session.ID)
+			must(err)
+			switch scenario {
+			case "new-input":
+				_, err = db.sql.ExecContext(ctx, `UPDATE comments SET created_at=? WHERE session_id=?`, FormatTime(at), session.ID)
+				must(err)
+			case "schedule":
+				_, _, err = db.CreateOrGetSchedule(ctx, CreateScheduleParams{SessionID: session.ID, SourceCommentID: 99, OwnerHandle: "owner", Payload: "work", DueAt: at})
+				must(err)
+			}
+			must(db.SetSessionState(ctx, session.ID, SessionIdle))
+			must(db.SetSessionNeedsPoll(ctx, session.ID))
+			terminal, err := db.AlertTaskTerminal(ctx, session.TaskRef)
+			must(err)
+			want := scenario == "idle"
+			if terminal != want {
+				t.Fatalf("terminal=%t want=%t", terminal, want)
+			}
+			rows, complete, err := db.AlertTaskSources(ctx, at)
+			must(err)
+			if !complete || (want && len(rows) != 0) || (!want && len(rows) != 1) {
+				t.Fatalf("sources=%+v complete=%t", rows, complete)
+			}
+		})
 	}
 }

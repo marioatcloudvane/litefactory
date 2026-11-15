@@ -299,19 +299,24 @@ func (db *DB) AlertTaskSettled(ctx context.Context, kind, key string) (bool, err
 	return false, nil
 }
 
-// alertTaskTerminalSQL is shared by both source paths and recovery. Backlog
-// retirement or the latest delivered/finished/complete workflow is affirmative
-// evidence (Bug, Spike and Research graphs end at complete). A routine drain
-// sets needs_poll on idle sessions, so the flag alone is never progress debt;
-// retained historical input alone cannot override it. New admitted input and
-// live execution, schedules or continuations still own work.
+// alertTaskTerminalSQL is shared by both source paths and recovery. With no
+// live run, running graph, pending schedule or pending continuation, a task is
+// finished when backlog is retired (needs_poll=0) or when its latest graph
+// ended: succeeded at any end node, cancelled, or failed at owner_close (the
+// owner closed it). A session with no graph instance at all (pre-graph) is
+// finished too. A routine drain sets needs_poll on idle sessions, so the flag
+// alone is never progress debt, and retained historical input cannot override
+// it: only owner input newer than the latest graph's finish (or, without a
+// graph, the latest run's finish) still owns work.
 const alertTaskTerminalSQL = `s.state<>'running'
  AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status IN ('running','prelaunch'))
  AND NOT EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='running')
  AND NOT EXISTS(SELECT 1 FROM schedules p WHERE p.session_id=s.id AND p.status='pending')
  AND NOT EXISTS(SELECT 1 FROM automatic_continuations c WHERE c.session_id=s.id AND c.status='pending')
- AND (s.needs_poll=0 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND g.status='succeeded' AND g.current_node IN ('delivered','finished','complete')
- AND NOT EXISTS(SELECT 1 FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL AND c.classification='instruction' AND max(c.created_at,c.recorded_at)>g.finished_at)))`
+ AND (s.needs_poll=0 OR EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id AND g.id=(SELECT max(i.id) FROM graph_instances i WHERE i.session_id=s.id) AND (g.status IN ('succeeded','cancelled') OR (g.status='failed' AND g.current_node='owner_close'))
+ AND NOT EXISTS(SELECT 1 FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL AND c.classification='instruction' AND max(c.created_at,c.recorded_at)>COALESCE(g.finished_at,'')))
+ OR (NOT EXISTS(SELECT 1 FROM graph_instances g WHERE g.session_id=s.id)
+ AND NOT EXISTS(SELECT 1 FROM owner_instruction_inputs o JOIN comments c ON c.id=o.comment_id WHERE o.session_id=s.id AND o.assigned_attempt_id IS NULL AND c.classification='instruction' AND max(c.created_at,c.recorded_at)>COALESCE((SELECT max(r.finished_at) FROM runs r WHERE r.session_id=s.id),''))))`
 
 // AlertTaskTerminal requires affirmative completion and no current work owner.
 func (db *DB) AlertTaskTerminal(ctx context.Context, task string) (bool, error) {
