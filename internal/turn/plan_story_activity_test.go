@@ -8,7 +8,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"html"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -148,7 +150,7 @@ func TestPlanStoryNormalizedReadbackAndRecovery(t *testing.T) {
 }
 
 func TestPlanStoryMAR12ConflictReconciliation(t *testing.T) {
-	for _, variant := range []string{"confirmed", "prose", "title", "metadata", "closed", "parent", "missing authority", "missing intent", "ambiguous", "github", "failed", "ordinary apply"} {
+	for _, variant := range []string{"confirmed", "MAR-114", "prose", "title", "metadata", "closed", "parent", "missing authority", "missing intent", "ambiguous", "github", "failed", "ordinary apply"} {
 		t.Run(variant, func(t *testing.T) {
 			h, _, a, r, restart := planBoundarySetup(t)
 			ctx := t.Context()
@@ -165,6 +167,12 @@ func TestPlanStoryMAR12ConflictReconciliation(t *testing.T) {
 			_, payload, _ := strings.Cut(body, "<!-- lf:plan-content v=1 data=")
 			payload, _, _ = strings.Cut(payload, " -->")
 			must(json.Unmarshal([]byte(payload), &r.Draft))
+			if variant == "MAR-114" {
+				// MAR-114 (#1521): a multi-line note renders with <br>, which Linear
+				// keeps literally, and its punctuation entities read back decoded.
+				r.Draft.UserStory.Benefit = "reach shared controls and running-work status through a consistent entry"
+				r.Draft.UserStory.Notes = append(r.Draft.UserStory.Notes, "Constraints:\n- K-01 Preserve existing overlay\n- K-02 no new routes")
+			}
 			a.SelectedKey = r.Draft.Key
 			r.RequestID = "plan-request-708-6832"
 			remote := &normalizedPlanTickets{attached: true}
@@ -217,6 +225,20 @@ func TestPlanStoryMAR12ConflictReconciliation(t *testing.T) {
 			// maps to the isolated database's synthetic compatibility identity.
 			body = strings.Replace(body, "<!-- lf:plan-story parent=4503599627567323 key=story-001 -->", planStoryMarker(a, a.SelectedKey), 1)
 			switch variant {
+			case "MAR-114":
+				text, err := report.PreparePlanStory(ctx, h.Redactor, report.PlanStoryInput{
+					Parent: int64(a.ParentNumber), Ordinal: d.Ordinal, Draft: r.Draft, Stage: r.Stage, Scope: a.ContentScope,
+					Retained: true, ParentKey: displayIssue(ref, legacy).TitleKey,
+					Prefix:     planStoryMarker(a, a.SelectedKey) + "\n" + planRequestMarker(r) + "\n",
+					PartHeader: func(int, int) string { return "" }, CommentLimit: github.CommentSizeLimit,
+				})
+				must(err)
+				written := text.Body.String()
+				if !strings.Contains(written, "running&#45;work") || !strings.Contains(written, "<br>") {
+					t.Fatalf("fixture lacks the MAR-114 shapes:\n%s", written)
+				}
+				// What Linear stores: decimal punctuation entities as characters, <br> kept.
+				body = regexp.MustCompile(`&#[0-9]{2,3};`).ReplaceAllStringFunc(written, html.UnescapeString)
 			case "prose":
 				body = strings.Replace(body, "The Invoices table is crowded", "The Invoices table is edited", 1)
 			case "title":
@@ -253,7 +275,7 @@ func TestPlanStoryMAR12ConflictReconciliation(t *testing.T) {
 			if holds["unrelated-request"] != "unrelated hold" {
 				t.Fatal("unrelated hold changed")
 			}
-			if variant == "confirmed" {
+			if variant == "confirmed" || variant == "MAR-114" {
 				observed, err := bridge.GetIssue(ctx, a.Repo, child.Number)
 				must(err)
 				if draft.Candidate != r.Candidate || draft.IssueID != child.ID || draft.Revision != PlanIssueRevision(observed.Title, observed.Body) || holds[r.RequestID] != "" {
