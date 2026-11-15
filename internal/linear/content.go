@@ -259,13 +259,24 @@ func comparableContent(body string) string {
 	lines := strings.Split(body, "\n")
 	// Unknown HTML and inline code can span lines. Do not interpret their
 	// whitespace or escapes with the plain-prose rules below.
+	story := managedStoryDocument(lines)
 	fence := ""
 	for i, line := range lines {
 		next := nextContentFence(fence, line)
+		// The story renderer writes a line break inside a field as <br>;
+		// in a story line it is compared as one token, not as unknown HTML.
+		if story && fence == "" && next == "" && !managedMarker(line) {
+			line = storyLineBreak.ReplaceAllString(line, "<br>")
+			lines[i] = line
+		}
+		probe := contentLinkDestination.ReplaceAllString(line, "]()")
+		if story {
+			probe = strings.ReplaceAll(probe, "<br>", "")
+		}
 		// A table row is one line, so inline code or HTML inside its cells
 		// cannot span lines; its cells keep those characters untouched.
 		if fence == "" && next == "" && !managedMarker(line) && !strings.HasPrefix(line, "|") &&
-			(strings.ContainsAny(contentLinkDestination.ReplaceAllString(line, "]()"), "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
+			(strings.ContainsAny(probe, "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
 			return body
 		}
 		// Classify scaffold headings after the already-supported single-space
@@ -275,7 +286,6 @@ func comparableContent(body string) string {
 		}
 		fence = next
 	}
-	story := managedStoryDocument(lines)
 	lines, scaffold := comparableScaffoldSpacing(lines)
 	if !uniformContentLists(lines) {
 		return body
@@ -553,6 +563,10 @@ func managedStoryDocument(lines []string) bool {
 	}
 	return scaffoldRequestMarker.MatchString(lines[request])
 }
+
+// storyLineBreak is the renderer's <br> in the forms Linear may store it:
+// as written, with a self-closing slash, or escaped as literal text (#1521).
+var storyLineBreak = regexp.MustCompile(`\\?<br ?/?\\?>|&lt;br ?/?&gt;`)
 
 var punctuationEntity = regexp.MustCompile(`&#([0-9]{2,3});`)
 
