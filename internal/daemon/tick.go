@@ -722,7 +722,7 @@ func (d *Daemon) discover(
 	if err := d.webhookHints(ctx, byRepo, seen, result); err != nil {
 		return nil, err
 	}
-	if err := d.drainTicketObservations(ctx, byRepo, seen); err != nil {
+	if err := d.drainTicketObservationsWithinBudget(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
 	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {

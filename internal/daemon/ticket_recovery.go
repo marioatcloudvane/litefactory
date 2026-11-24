@@ -261,6 +261,29 @@ func githubRepo(container string) github.Repo {
 }
 func mustTicketNumber(key string) int { n, _ := strconv.Atoi(key); return n }
 
+// drainTicketObservationsWithinBudget runs the pending observation drain as
+// best effort inside discovery. The drain rereads every row from its provider
+// one at a time, so a large backlog (after a provider outage, #1528) can take
+// longer than the whole discovery phase. It therefore gets only part of the
+// time left on ctx: when that budget runs out the rows not yet reached stay
+// pending for a later tick, discovery goes on with the rest of its deadline,
+// and dispatch still runs and clears the session-bound rows already queued.
+// Cancellation or expiry of ctx itself is still returned.
+func (d *Daemon) drainTicketObservationsWithinBudget(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
+	drainCtx := ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		drainCtx, cancel = context.WithDeadline(ctx, time.Now().Add(time.Until(deadline)/2))
+		defer cancel()
+	}
+	err := d.drainTicketObservations(drainCtx, byRepo, seen)
+	if err != nil && ctx.Err() == nil && errors.Is(drainCtx.Err(), context.DeadlineExceeded) {
+		d.log.WarnContext(ctx, "pending ticket observation drain stopped at its time budget; the remaining rows stay pending", slog.Any("error", err))
+		return nil
+	}
+	return err
+}
+
 // drainTicketObservations converts durable qualified signals into the existing
 // session backlog and child discovery records. Clearing follows that handoff;
 // generation checks keep observations received during the read pending.
@@ -276,6 +299,12 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 	failedSources := make(map[int64]bool)
 	pending = d.rotateTicketObservations(pending)
 	for _, observation := range pending {
+		// Out of time: leave this and every later row pending. Going on would
+		// only turn each reread into a deadline error recorded against its
+		// session or source.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if failedSources[observation.ConnectionVersionID] {
 			continue
 		}
@@ -459,6 +488,9 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			continue
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			d.rateLimited(ctx, q.log, recoveryTime(ctx), err)
 			if sessionErr == nil {
 				d.prepareFailed(ctx, &task{session: session, log: q.log, tickAt: recoveryTime(ctx)}, err)
